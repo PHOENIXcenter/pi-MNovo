@@ -19,6 +19,18 @@ fragment-evidence expert, length predictor, router, and score calibrator once.
 Candidate generation is fixed to Beam5 plus PMC union. Experimental FDR and
 dynamic Beam20 paths are not part of this release.
 
+## How it works
+
+![pi-MNovo model architecture](docs/assets/pi-MNovo_model_architecture.png)
+
+An MS/MS spectrum and its precursor mass and charge are encoded once by a
+shared non-autoregressive backbone. The parallel CTC decoder generates Beam5
+candidates, while precise-mass-control decoding adds a mass-consistent candidate
+to the same pool. A default ranker, a long-peptide expert, and a fragment-evidence
+expert score the shared candidates. The conservative router retains the default
+result unless an expert shows sufficient evidence under the frozen routing rule.
+The selected peptide is reported with a calibrated `Score` between 0 and 1.
+
 ## System requirements
 
 - Linux x86-64
