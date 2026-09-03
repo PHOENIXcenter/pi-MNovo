@@ -116,12 +116,14 @@ empirical confidence. The manuscript operating threshold is approximately
 
 ## Evaluation
 
-Annotated MGF files must contain a `SEQ` field for each spectrum.
+Evaluation accepts the same input forms as prediction: a single MGF file, a
+directory searched recursively, or a case-insensitive MGF glob. Every spectrum
+must contain a `SEQ` field with its reference peptide.
 
 ```bash
 pi-mnovo \
   --model eval \
-  --input annotated.mgf \
+  --input ./annotated_mgf \
   --output predictions.tsv \
   --metrics-output metrics.json
 ```
