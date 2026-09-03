@@ -10,8 +10,7 @@ from pathlib import Path
 
 MODEL_NAME = "pi-MNovo-v0.1.0.ckpt"
 MODEL_URL = (
-    "https://github.com/ye-jing-wen/pi-MNovo/releases/download/"
-    f"v0.1.0/{MODEL_NAME}"
+    f"https://github.com/ye-jing-wen/pi-MNovo/releases/download/v0.1.0/{MODEL_NAME}"
 )
 MODEL_SHA256 = "1de589a887a7b7271aae794b90850ece6c3c68c6d085374d0b32e40ec18d617f"
 

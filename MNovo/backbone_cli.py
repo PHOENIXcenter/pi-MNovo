@@ -1,9 +1,11 @@
-"""The command line entry point for MNovo."""
+"""Internal command-line entry point for backbone training."""
+
 import datetime
 import logging
 import os
 import sys
 import warnings
+from pathlib import Path
 from typing import Optional
 
 warnings.filterwarnings("ignore", category=DeprecationWarning)
@@ -14,7 +16,7 @@ import yaml
 from pytorch_lightning.lite import LightningLite
 
 from . import utils
-from .denovo import model_runner
+from .denovo import backbone_runner
 
 
 logger = logging.getLogger("MNovo")
@@ -24,14 +26,9 @@ logger = logging.getLogger("MNovo")
 @click.option(
     "--mode",
     required=True,
-    default="denovo",
-    help="\b\nThe mode in which to run MNovo:\n"
-    '- "denovo" will predict peptide sequences for\nunknown MS/MS spectra.\n'
-    '- "train" will train a model (from scratch or by\ncontinuing training a '
-    "previously trained model).\n"
-    '- "eval" will evaluate the performance of a\ntrained model using '
-    "previously acquired spectrum\nannotations.",
-    type=click.Choice(["denovo", "train", "eval"]),
+    default="train",
+    help="Internal mode; only backbone training is supported.",
+    type=click.Choice(["train"]),
 )
 @click.option(
     "--model",
@@ -46,13 +43,11 @@ logger = logging.getLogger("MNovo")
 )
 @click.option(
     "--peak_path_val",
-    help="The file path with peak files to be used as validation data during "
-    "training.",
+    help="The file path with peak files to be used as validation data during training.",
 )
 @click.option(
     "--peak_path_test",
-    help="The file path with peak files to be used as testing data during "
-    "training.",
+    help="The file path with peak files to be used as testing data during training.",
 )
 @click.option(
     "--config",
@@ -62,9 +57,8 @@ logger = logging.getLogger("MNovo")
 )
 @click.option(
     "--output",
-    help="The base output file name to store logging (extension: .log) and "
-    "(optionally) prediction results (extension: .csv).",
-    type=click.Path(dir_okay=False),
+    help="Training run directory for logs, metrics, and checkpoints.",
+    type=click.Path(file_okay=False),
 )
 def main(
     mode: str,
@@ -75,29 +69,27 @@ def main(
     config: Optional[str],
     output: Optional[str],
 ):
-
     if output is None:
-        output = os.path.join(
-            os.getcwd(),
-            f"MNovo_{datetime.datetime.now().strftime('%Y%m%d%H%M%S')}",
+        output_dir = Path.cwd() / (
+            f"MNovo_{datetime.datetime.now().strftime('%Y%m%d%H%M%S')}"
         )
     else:
-        output = os.path.splitext(os.path.abspath(output))[0]
+        output_dir = Path(output).expanduser().resolve()
+    output_dir.mkdir(parents=True, exist_ok=True)
 
     # Configure logging.
     logging.captureWarnings(True)
     root = logging.getLogger()
     root.setLevel(logging.DEBUG)
     log_formatter = logging.Formatter(
-        "{asctime} {levelname} [{name}/{processName}] {module}.{funcName} : "
-        "{message}",
+        "{asctime} {levelname} [{name}/{processName}] {module}.{funcName} : {message}",
         style="{",
     )
     console_handler = logging.StreamHandler(sys.stderr)
     console_handler.setLevel(logging.DEBUG)
     console_handler.setFormatter(log_formatter)
     root.addHandler(console_handler)
-    file_handler = logging.FileHandler(f"{output}.log")
+    file_handler = logging.FileHandler(output_dir / "train.log")
     file_handler.setFormatter(log_formatter)
     root.addHandler(file_handler)
     # Disable dependency non-critical log messages.
@@ -140,6 +132,7 @@ def main(
         learning_rate=float,
         weight_decay=float,
         train_batch_size=int,
+        train_num_samples=int,
         predict_batch_size=int,
         n_beams=int,
         max_epochs=int,
@@ -166,13 +159,22 @@ def main(
     }
     # Add extra configuration options and scale by the number of GPUs.
     n_gpus = torch.cuda.device_count()
-    config["n_workers"] = int(config["n_workers"]) if config.get("n_workers") is not None else utils.n_workers()
+    config["n_workers"] = (
+        int(config["n_workers"])
+        if config.get("n_workers") is not None
+        else utils.n_workers()
+    )
     if n_gpus > 1:
         config["train_batch_size"] = config["train_batch_size"] // n_gpus
 
+    config["model_save_folder_path"] = str(output_dir / "checkpoints")
+    if not config.get("metrics_csv_path"):
+        config["metrics_csv_path"] = str(output_dir / "metrics.csv")
+
     import random
-    if(config["random_seed"]==-1):
-        config["random_seed"]=random.randint(1, 9999)
+
+    if config["random_seed"] == -1:
+        config["random_seed"] = random.randint(1, 9999)
     LightningLite.seed_everything(seed=config["random_seed"], workers=True)
 
     # Log the active configuration.
@@ -182,25 +184,13 @@ def main(
     logger.debug("peak_path_val = %s", peak_path_val)
     logger.debug("peak_path_test = %s", peak_path_test)
     logger.debug("config = %s", config_fn)
-    logger.debug("output = %s", output)
+    logger.debug("output = %s", output_dir)
     for key, value in config.items():
         logger.debug("%s = %s", str(key), str(value))
 
-    # Run MNovo in the specified mode.
-    if mode == "denovo":
-        logger.info("Predict peptide sequences with MNovo.")
-        writer = None
-        # writer.set_metadata(
-        #     config, peak_path=peak_path, model=model, config_filename=config_fn
-        # )
-        model_runner.predict(peak_path, model, config, writer)
-        #writer.save()
-    elif mode == "eval":
-        logger.info("Evaluate a trained MNovo model.")
-        model_runner.evaluate(peak_path, model, config)
-    elif mode == "train":
-        logger.info("Train the MNovo model.")
-        model_runner.train(peak_path, peak_path_val, peak_path_test, model, config)
+    logger.info("Train the MNovo backbone.")
+    backbone_runner.train(peak_path, peak_path_val, peak_path_test, model, config)
+
 
 if __name__ == "__main__":
     main()

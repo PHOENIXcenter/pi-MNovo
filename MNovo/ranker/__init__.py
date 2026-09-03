@@ -1,6 +1,5 @@
-"""Offline candidate ranking and confidence calibration for MNovo."""
+"""Candidate ranking, expert evidence, and observable routing."""
 
-from .calibration import PositivePlattCalibrator
 from .model import ResidualCandidateRanker
 
-__all__ = ["PositivePlattCalibrator", "ResidualCandidateRanker"]
+__all__ = ["ResidualCandidateRanker"]

@@ -29,8 +29,8 @@ def resolve_model_release(source: str | Path) -> Path:
         marker = source / "verified.json"
         if not marker.is_file():
             raise ValueError(
-                "MNovo publication inference requires the unified release "
-                "checkpoint or its verified runtime cache; arbitrary component "
+                "pi-MNovo release inference requires the unified checkpoint "
+                "or its verified runtime cache; arbitrary component "
                 "directories such as models/final_components are unsupported."
             )
         return source
@@ -46,8 +46,7 @@ def resolve_model_release(source: str | Path) -> Path:
     root = Path.home() / ".cache" / "mnovo" / "releases" / release_id
     marker = root / "verified.json"
     expected = {
-        name: metadata["sha256"]
-        for name, metadata in manifest["components"].items()
+        name: metadata["sha256"] for name, metadata in manifest["components"].items()
     }
     if marker.is_file():
         recorded = json.loads(marker.read_text(encoding="utf-8"))
@@ -87,7 +86,8 @@ def resolve_model_release(source: str | Path) -> Path:
             {"source": str(source), "manifest": manifest, "components": expected},
             indent=2,
             sort_keys=True,
-        ) + "\n",
+        )
+        + "\n",
         encoding="utf-8",
     )
     return root

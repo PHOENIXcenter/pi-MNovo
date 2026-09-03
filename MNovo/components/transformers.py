@@ -1,4 +1,5 @@
 """Base Transformer models for working with mass spectra and peptides"""
+
 import re
 import copy
 import torch
@@ -141,7 +142,7 @@ class _PeptideTransformer(torch.nn.Module):
         self.reverse = False
         self._peptide_mass = PeptideMass(residues=residues)
         self._amino_acids = list(self._peptide_mass.masses.keys()) + ["_"]
-        self._idx2aa = {i : aa for i, aa in enumerate(self._amino_acids)}
+        self._idx2aa = {i: aa for i, aa in enumerate(self._amino_acids)}
         self._aa2idx = {aa: i for i, aa in self._idx2aa.items()}
 
         if pos_encoder:
@@ -153,23 +154,21 @@ class _PeptideTransformer(torch.nn.Module):
         self.aa_encoder = torch.nn.Embedding(
             len(self._amino_acids),
             dim_model,
-            padding_idx=-1, ## to be checked weather need the padding
+            padding_idx=-1,
         )
+
     def get_pad_idx(self):
-        #return the idx number for padding token, which is not in dictonary
         return -1
 
-    def get_blank_idx (self):
-        #return the idx in dic for ctc blank token
+    def get_blank_idx(self):
         return self._aa2idx["_"]
-    def get_blank_sym (self):
-        #return the blank symbol used in dic
+
+    def get_blank_sym(self):
         return "_"
+
     def get_symbols(self):
-        symbols = []
-        for i in range(len(self._aa2idx)):
-            symbols.append(self._idx2aa[i])
-        return symbols
+        return [self._idx2aa[i] for i in range(len(self._aa2idx))]
+
     def tokenize(self, sequence, partial=False):
         """Transform a peptide sequence into tokens
 
@@ -192,23 +191,23 @@ class _PeptideTransformer(torch.nn.Module):
         if self.reverse:
             sequence = list(reversed(sequence))
 
-        #if not partial:
-            #sequence += ["$"]
-
         tokens = [self._aa2idx[aa] for aa in sequence]
         tokens = torch.tensor(tokens, device=self.device)
         return tokens
-    def remove_repentance(self, index_list) :
+
+    def collapse_repeated_tokens(self, index_list):
         """
         Eliminate repeated index in "a" list. e.g., [1, 1, 2, 2, 3] --> [1, 2, 3]
         """
-        return [a for a, b in zip(index_list, index_list[1:] + [not index_list[-1]]) if a != b]
+        return [
+            a
+            for a, b in zip(index_list, index_list[1:] + [not index_list[-1]])
+            if a != b
+        ]
 
     def ctc_post_processing(self, sentence_index):
-        # setence_index: list of index of a peptide
-        sentence_index = self.remove_repentance(sentence_index)
+        sentence_index = self.collapse_repeated_tokens(sentence_index)
         sentence_index = list(filter((self.get_blank_idx()).__ne__, sentence_index))
-        #sentence_index = list(filter((self.dictionary.pad()).__ne__, sentence_index))
         return sentence_index
 
     def detokenize_truth(self, tokens, is_beam=False):
@@ -224,21 +223,13 @@ class _PeptideTransformer(torch.nn.Module):
         list of str
             The amino acids in the peptide sequence.
         """
-        #sequence = [self._idx2aa.get(i.item(), "") for i in tokens]
-        if is_beam == False:
+        if not is_beam:
             sequence = [i.item() for i in tokens]
         else:
             sequence = tokens
         sequence = list(filter((self.get_pad_idx()).__ne__, sequence))
 
-        sequence = [self._idx2aa[i] for i in sequence] # list[str],
-
-        '''
-        if "$" in sequence:
-            idx = sequence.index("$")
-            sequence = sequence[: idx + 1]
-        '''
-
+        sequence = [self._idx2aa[i] for i in sequence]
 
         if self.reverse:
             sequence = list(reversed(sequence))
@@ -258,18 +249,16 @@ class _PeptideTransformer(torch.nn.Module):
         list of str
             The amino acids in the peptide sequence.
         """
-        #sequence = [self._idx2aa.get(i.item(), "") for i in tokens]
         sequence = [i.item() for i in tokens]
         sequence = self.ctc_post_processing(sequence)
 
-        sequence = [self._idx2aa[i] for i in sequence] # list["str"],
+        sequence = [self._idx2aa[i] for i in sequence]
 
-        '''
+        """
         if "$" in sequence:
             idx = sequence.index("$")
             sequence = sequence[: idx + 1]
-        '''
-
+        """
 
         if self.reverse:
             sequence = list(reversed(sequence))
@@ -430,7 +419,7 @@ class PeptideDecoder(_PeptideTransformer):
         reverse=True,
         residues="canonical",
         max_charge=5,
-        max_pep_len = 100
+        max_pep_len=100,
     ):
         """Initialize a PeptideDecoder"""
         super().__init__(
@@ -450,8 +439,7 @@ class PeptideDecoder(_PeptideTransformer):
             else:
                 tem_list.append(0)
 
-
-        self.mass_mapping = torch.tensor(tem_list).to(self.device) # vocab_size
+        self.mass_mapping = torch.tensor(tem_list).to(self.device)  # vocab_size
 
         # Additional model components
         self.mass_encoder = MassEncoder(dim_model)
@@ -464,17 +452,22 @@ class PeptideDecoder(_PeptideTransformer):
         )
         self.dropout = dropout
         self.layers = _get_clones(layer, n_layers)
-        self.layer_ln = torch.nn.Linear (dim_model * 2 , dim_model)
+        self.layer_ln = torch.nn.Linear(dim_model * 2, dim_model)
 
         self.final = torch.nn.Linear(dim_model, len(self._amino_acids))
+
     def demass(self, tokens_pred):
-        #tokens_pred  = (bz, seq_len)
+        # tokens_pred  = (bz, seq_len)
 
-        token_onehot = torch.nn.functional.one_hot(tokens_pred, num_classes=self.vocab_size).to(self.device) # bz, seq_len, vocab_size
-        mass_mapped  = token_onehot.to(self.mass_mapping.dtype) @ self.mass_mapping.to(self.device)  #bz, seq_len
-        #mass_mapped = mass_mapped[:, :, None ] # bz, seq_len, 1
+        token_onehot = torch.nn.functional.one_hot(
+            tokens_pred, num_classes=self.vocab_size
+        ).to(self.device)  # bz, seq_len, vocab_size
+        mass_mapped = token_onehot.to(self.mass_mapping.dtype) @ self.mass_mapping.to(
+            self.device
+        )  # bz, seq_len
+        # mass_mapped = mass_mapped[:, :, None ] # bz, seq_len, 1
 
-        return mass_mapped  #bz, seq_len
+        return mass_mapped  # bz, seq_len
 
     def forward(self, sequences, precursors, memory, memory_key_padding_mask):
         """Predict the next amino acid for a collection of sequences.
@@ -509,28 +502,29 @@ class PeptideDecoder(_PeptideTransformer):
         if sequences is not None:
             sequences = utils.listify(sequences)
             tokens = [self.tokenize(s) for s in sequences]
-            tokens = torch.nn.utils.rnn.pad_sequence(tokens, batch_first=True, padding_value = self.get_pad_idx())
+            tokens = torch.nn.utils.rnn.pad_sequence(
+                tokens, batch_first=True, padding_value=self.get_pad_idx()
+            )
         else:
             tokens = torch.tensor([[]]).to(self.device)
 
-
         # Prepare mass and charge
-        masses = self.mass_encoder(precursors[:, None, [0]])  #(bz, 1, dim)
-        charges = self.charge_encoder(precursors[:, 1].int() - 1)  #(bz, dim)
-        precursors = masses + charges[:, None, :] # bz, 1, dim
+        masses = self.mass_encoder(precursors[:, None, [0]])  # (bz, 1, dim)
+        charges = self.charge_encoder(precursors[:, 1].int() - 1)  # (bz, dim)
+        precursors = masses + charges[:, None, :]  # bz, 1, dim
 
         # Feed through model:
-        tgt = precursors.repeat(1, self.max_pep_len, 1)    # b_z, max_len, dim
-        '''
+        tgt = precursors.repeat(1, self.max_pep_len, 1)  # b_z, max_len, dim
+        """
         if sequences is None:
             tgt = precursors
         else:
             tgt = torch.cat([precursors, self.aa_encoder(tokens)], dim=1) # to be changed, no longer need any encoder for peptite in the input
-        '''
+        """
         tgt_key_padding_mask = tgt.sum(axis=2) == 0
         tgt = self.pos_encoder(tgt)
-        #tgt_mask = generate_tgt_mask(tgt.shape[1]).type_as(precursors)
-        '''
+        # tgt_mask = generate_tgt_mask(tgt.shape[1]).type_as(precursors)
+        """
         preds = self.transformer_decoder(
             tgt=tgt,
             memory=memory,
@@ -538,47 +532,39 @@ class PeptideDecoder(_PeptideTransformer):
             #tgt_key_padding_mask=tgt_key_padding_mask,
             memory_key_padding_mask=memory_key_padding_mask.to(self.device),
         ) #bz, token_len, dim
-        '''
+        """
 
         output = tgt
 
         output_list = []
 
         for mod in self.layers:
-            output = mod(output, memory, tgt_mask=None,
-
-                         tgt_key_padding_mask=tgt_key_padding_mask,
-                         memory_key_padding_mask=memory_key_padding_mask)
-            preds = self.final(output) #bz, token_len, dic_size
+            output = mod(
+                output,
+                memory,
+                tgt_mask=None,
+                tgt_key_padding_mask=tgt_key_padding_mask,
+                memory_key_padding_mask=memory_key_padding_mask,
+            )
+            preds = self.final(output)  # bz, token_len, dic_size
             output_list.append(preds)
-            #pred_tokens = torch.argmax(preds, axis=2) #bz, token_len
-            #encoded_tokens = self.aa_encoder(pred_tokens) #bz, token_len, dim_model
-            #-------------not useful-------
-            #cum_mass = self.demass(pred_tokens) #bz, token_len
-            #cum_mass = cum_mass[:, :, None] #bz, token_len, 1
-            #encoded_mass = self.mass_ln(cum_mass) #bz, token_len, dim_model
-            #aa_encoded = encoded_mass + encoded_tokens  #bz, token_len, dim_model
-            #--------------------------------
-            #total_encod = torch.cat([output, encoded_tokens], dim=2) # bz, token_len ,dim_model * 2
-            #output = self.layer_ln(total_encod)
+            # pred_tokens = torch.argmax(preds, axis=2) #bz, token_len
+            # encoded_tokens = self.aa_encoder(pred_tokens) #bz, token_len, dim_model
+            # -------------not useful-------
+            # cum_mass = self.demass(pred_tokens) #bz, token_len
+            # cum_mass = cum_mass[:, :, None] #bz, token_len, 1
+            # encoded_mass = self.mass_ln(cum_mass) #bz, token_len, dim_model
+            # aa_encoded = encoded_mass + encoded_tokens  #bz, token_len, dim_model
+            # --------------------------------
+            # total_encod = torch.cat([output, encoded_tokens], dim=2) # bz, token_len ,dim_model * 2
+            # output = self.layer_ln(total_encod)
 
-            #output = torch.nn.functional.dropout(output, p=self.dropout)
-
-
-
-
-
-
-
-
-
-
-
+            # output = torch.nn.functional.dropout(output, p=self.dropout)
 
         return output_list[-1], tokens, output_list
 
+
 def _get_clones(module, N):
-    # FIXME: copy.deepcopy() is not defined on nn.module
     return torch.nn.ModuleList([copy.deepcopy(module) for i in range(N)])
 
 

@@ -14,7 +14,7 @@ verified as relative to the active environment's PyTorch libraries.
 ## Automated checks
 
 - Ruff static check for `MNovo`, `scripts`, and `tests`: passed.
-- Pytest: 17 passed.
+- Pytest: 23 passed.
 - Unified checkpoint SHA256: passed.
 - Embedded component hashes and required-component inventory: passed.
 - Backbone repackaging audit: all 286 state tensors were bitwise equal.
@@ -23,13 +23,11 @@ verified as relative to the active environment's PyTorch libraries.
 ## End-to-end smoke test
 
 The installed `pi-mnovo` entry point processed the public two-spectrum fixture
-`tests/data/synthetic.mgf` with the backbone forced to CPU on a CUDA-capable
-host. It materialized the MGF input, loaded the
-unified checkpoint, generated Beam5 plus PMC candidates, ran sequence routing,
-and wrote two predictions. The output contained the documented nine-column TSV
-schema and four-decimal confidence scores. This diagnostic does not establish
-CPU-only support because precise-mass-control decoding uses CUDA through CuPy;
-normal inference should use CUDA throughout.
+`tests/data/synthetic.mgf` on an NVIDIA A100 GPU. It materialized the MGF input,
+loaded the unified checkpoint, generated Beam5 plus PMC candidates, ran sequence
+routing, and wrote two predictions. The output contained the documented
+nine-column TSV schema and four-decimal confidence scores. Source-tree and wheel
+installations produced byte-identical outputs.
 
 Warnings emitted by PyTorch Lightning concern its deprecated `pkg_resources`
 namespace API. `setuptools` is pinned below version 81 to retain that API for the

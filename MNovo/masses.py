@@ -1,4 +1,5 @@
 """Amino acid masses and other useful mass spectrometry calculations"""
+
 import re
 
 

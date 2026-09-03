@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import logging
 from types import SimpleNamespace
 
 import torch
 
 from MNovo.denovo import mass_con
 from MNovo.denovo.model import Spec2Pep, ctc_post_processing
+
+LOGGER = logging.getLogger(__name__)
 
 
 def model_parameters(config: dict, args: SimpleNamespace) -> dict:
@@ -66,12 +69,10 @@ def pmc_candidates(
                 model.mass_control_tol,
             )
             candidates[idx] = [
-                int(token)
-                for token in ctc_post_processing(tokens)
-                if int(token) >= 0
+                int(token) for token in ctc_post_processing(tokens) if int(token) >= 0
             ]
         except (RuntimeError, ValueError) as error:
-            print(f"PMC candidate failed at batch item {idx}: {error}", flush=True)
+            LOGGER.warning("PMC candidate failed at batch item %d: %s", idx, error)
     return candidates
 
 

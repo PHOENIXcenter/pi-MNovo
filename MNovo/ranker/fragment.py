@@ -23,7 +23,9 @@ def theoretical_ions(
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     tokens = tokenize_peptide(peptide)
     try:
-        masses = np.asarray([float(residue_masses[token]) for token in tokens], dtype=np.float64)
+        masses = np.asarray(
+            [float(residue_masses[token]) for token in tokens], dtype=np.float64
+        )
     except KeyError:
         return (
             np.empty(0, dtype=np.float64),

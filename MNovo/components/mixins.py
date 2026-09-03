@@ -1,4 +1,5 @@
 """Useful mixins for model classes"""
+
 import pandas as pd
 
 

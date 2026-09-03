@@ -21,9 +21,7 @@ from torch.utils.data import DataLoader
 def _configure_cuda_runtime() -> None:
     candidates = []
     for package_root in site.getsitepackages():
-        candidates.append(
-            Path(package_root) / "nvidia" / "cuda_nvrtc" / "lib"
-        )
+        candidates.append(Path(package_root) / "nvidia" / "cuda_nvrtc" / "lib")
     existing = os.environ.get("LD_LIBRARY_PATH", "").split(os.pathsep)
     additions = [str(path) for path in candidates if path.is_dir()]
     merged = additions + [path for path in existing if path]
@@ -39,11 +37,12 @@ def _configure_cuda_runtime() -> None:
 _configure_cuda_runtime()
 
 from MNovo.denovo.ctc_beam_search import CTCBeamSearchDecoder
-from MNovo.denovo.db_dataloader import prepare_batch
-from MNovo.denovo.db_dataset import DbDataset
-from MNovo.denovo.db_index import DB_Index
+from MNovo.denovo.data import prepare_batch
+from MNovo.denovo.spectrum_dataset import SpectrumDataset
+from MNovo.denovo.spectrum_index import LmdbSpectrumIndex
 from MNovo.denovo.model import Spec2Pep
-from MNovo.ranker.cache import (
+from MNovo.ranker.features import (
+    calibrated_confidence,
     candidate_core_features,
     isotope_aware_mass_features,
 )
@@ -85,7 +84,7 @@ class Prediction:
 
 
 class IndexedDataset(torch.utils.data.Dataset):
-    def __init__(self, dataset: DbDataset, indices: np.ndarray) -> None:
+    def __init__(self, dataset: SpectrumDataset, indices: np.ndarray) -> None:
         self.dataset = dataset
         self.indices = indices
 
@@ -103,7 +102,9 @@ def collate_indexed(batch):
     return spectra, precursors, peptides, indices
 
 
-def _selected(scores: torch.Tensor, mask: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+def _selected(
+    scores: torch.Tensor, mask: torch.Tensor
+) -> tuple[torch.Tensor, torch.Tensor]:
     masked = scores.masked_fill(~mask, -1e9)
     top = masked.topk(k=min(2, masked.size(1)), dim=1)
     index = top.indices[:, 0]
@@ -132,12 +133,13 @@ class MNovoRuntime:
         self.components = self.root / "components"
         self.options = options or RuntimeOptions()
         if self.options.mode != "fast":
-            raise ValueError("The publication runtime supports only mode='fast'.")
+            raise ValueError("The release runtime supports only mode='fast'.")
         if self.options.initial_beam != 5:
-            raise ValueError("The publication runtime is frozen to beam width 5.")
+            raise ValueError("The release runtime is frozen to beam width 5.")
         self.device = torch.device(
-            "cuda" if device == "auto" and torch.cuda.is_available() else
-            ("cpu" if device == "auto" else device)
+            "cuda"
+            if device == "auto" and torch.cuda.is_available()
+            else ("cpu" if device == "auto" else device)
         )
         self.config = yaml.safe_load(
             (self.root / "config" / "inference.yaml").read_text(encoding="utf-8")
@@ -170,7 +172,7 @@ class MNovoRuntime:
         self.fast_router, self.fast_router_checkpoint = self._load_fast_router()
         if self.fast_router_checkpoint.get("feature_names") != ROUTER_FEATURE_NAMES:
             raise RuntimeError(
-                "This model uses an obsolete router schema. The publication "
+                "This model uses an obsolete router schema. The release "
                 "runtime accepts only the frozen 36-feature observable router."
             )
 
@@ -222,10 +224,7 @@ class MNovoRuntime:
         return result
 
     def _raw_symbols(self, tokens: list[int]) -> list[str]:
-        symbols = [
-            str(self.backbone.decoder._idx2aa[int(token)])
-            for token in tokens
-        ]
+        symbols = [str(self.backbone.decoder._idx2aa[int(token)]) for token in tokens]
         if self.backbone.decoder.reverse:
             symbols = list(reversed(symbols))
         return symbols
@@ -272,10 +271,13 @@ class MNovoRuntime:
         precursors: torch.Tensor,
         pmc_bundle: tuple[list[list[int]], list[float]] | None = None,
         return_pmc: bool = False,
-    ) -> list[dict] | tuple[
-        list[dict],
-        tuple[list[list[int]], list[float]],
-    ]:
+    ) -> (
+        list[dict]
+        | tuple[
+            list[dict],
+            tuple[list[list[int]], list[float]],
+        ]
+    ):
         beam_tokens = beam_tokens.detach().cpu()
         beam_nlls = beam_nlls.detach().float().cpu()
         decoded = [
@@ -386,9 +388,10 @@ class MNovoRuntime:
 
     def _r1_confidence(self, score: torch.Tensor) -> torch.Tensor:
         calibration = self.r1_checkpoint["ranker_calibrator"]
-        return torch.sigmoid(
-            float(calibration["scale"]) * score
-            + float(calibration["bias"])
+        return calibrated_confidence(
+            score,
+            float(calibration["scale"]),
+            float(calibration["bias"]),
         )
 
     def _observable_select(
@@ -398,9 +401,7 @@ class MNovoRuntime:
     ) -> tuple[torch.Tensor, torch.Tensor, list[str]]:
         """Reproduce the frozen 36-feature Benchmark10 selection online."""
         r1_input = torch.cat([data["core"], data["mass0"]], dim=-1)
-        r1_scores, r1_index, r1_margin = self._rank(
-            self.r1, r1_input, data["mask"]
-        )
+        r1_scores, r1_index, r1_margin = self._rank(self.r1, r1_input, data["mask"])
         length_logits = self.length_predictor(data["embedding"], data["precursor"])
         length_features = length_candidate_features(length_logits, data["length"])
         long_extra = torch.stack(
@@ -411,26 +412,29 @@ class MNovoRuntime:
             dim=-1,
         )
         r2_input = torch.cat(
-            [r1_scores.unsqueeze(-1), data["core"], data["mass0"],
-             length_features, long_extra],
+            [
+                r1_scores.unsqueeze(-1),
+                data["core"],
+                data["mass0"],
+                length_features,
+                long_extra,
+            ],
             dim=-1,
         )
-        r2_scores, r2_index, r2_margin = self._rank(
-            self.r2, r2_input, data["mask"]
-        )
+        r2_scores, r2_index, r2_margin = self._rank(self.r2, r2_input, data["mask"])
         fragment = self._fragment_tensor(data, spectra)
         r3_input = torch.cat(
             [r1_scores.unsqueeze(-1), data["core"], data["mass0"], fragment],
             dim=-1,
         )
-        r3_scores, r3_index, r3_margin = self._rank(
-            self.r3, r3_input, data["mask"]
-        )
+        r3_scores, r3_index, r3_margin = self._rank(self.r3, r3_input, data["mask"])
 
         indices = [r1_index, r2_index, r3_index]
         scores = [r1_scores, r2_scores, r3_scores]
         margins = [r1_margin, r2_margin, r3_margin]
-        selected_scores = [_gather(value, index) for value, index in zip(scores, indices)]
+        selected_scores = [
+            _gather(value, index) for value, index in zip(scores, indices)
+        ]
         fragment_composite = (
             fragment[..., [0, 1, 2, 5, 6, 7, 8, 9, 11]]
             * torch.tensor(
@@ -440,28 +444,52 @@ class MNovoRuntime:
         ).sum(dim=-1)
         selected_mass = [_gather(data["mass0"][..., 0], index) for index in indices]
         selected_length = [_gather(data["length"] / 40.0, index) for index in indices]
-        selected_length_logp = [_gather(length_features[..., 0], index) for index in indices]
-        selected_length_dev = [_gather(length_features[..., 1], index) for index in indices]
+        selected_length_logp = [
+            _gather(length_features[..., 0], index) for index in indices
+        ]
+        selected_length_dev = [
+            _gather(length_features[..., 1], index) for index in indices
+        ]
         selected_fragment = [_gather(fragment_composite, index) for index in indices]
         selected_pmc = [_gather(data["is_pmc"].float(), index) for index in indices]
         features = torch.stack(
             [
-                selected_scores[0], selected_scores[1], selected_scores[2],
-                selected_scores[1] - selected_scores[0], selected_scores[2] - selected_scores[0],
-                margins[0], margins[1], margins[2],
-                indices[0].float() / 20.0, indices[1].float() / 20.0, indices[2].float() / 20.0,
-                (indices[0] == indices[1]).float(), (indices[0] == indices[2]).float(),
+                selected_scores[0],
+                selected_scores[1],
+                selected_scores[2],
+                selected_scores[1] - selected_scores[0],
+                selected_scores[2] - selected_scores[0],
+                margins[0],
+                margins[1],
+                margins[2],
+                indices[0].float() / 20.0,
+                indices[1].float() / 20.0,
+                indices[2].float() / 20.0,
+                (indices[0] == indices[1]).float(),
+                (indices[0] == indices[2]).float(),
                 (indices[1] == indices[2]).float(),
                 torch.log1p(data["precursor"][:, 0].clamp_min(0.0)) / 10.0,
                 data["precursor"][:, 1] / 10.0,
-                selected_mass[0], selected_mass[1], selected_mass[2],
-                selected_length[0], selected_length[1], selected_length[2],
-                selected_length_logp[0], selected_length_logp[1], selected_length_logp[2],
-                selected_length_dev[0], selected_length_dev[1], selected_length_dev[2],
-                selected_fragment[0], selected_fragment[1], selected_fragment[2],
+                selected_mass[0],
+                selected_mass[1],
+                selected_mass[2],
+                selected_length[0],
+                selected_length[1],
+                selected_length[2],
+                selected_length_logp[0],
+                selected_length_logp[1],
+                selected_length_logp[2],
+                selected_length_dev[0],
+                selected_length_dev[1],
+                selected_length_dev[2],
+                selected_fragment[0],
+                selected_fragment[1],
+                selected_fragment[2],
                 selected_fragment[1] - selected_fragment[0],
                 selected_fragment[2] - selected_fragment[0],
-                selected_pmc[0], selected_pmc[1], selected_pmc[2],
+                selected_pmc[0],
+                selected_pmc[1],
+                selected_pmc[2],
             ],
             dim=1,
         ).float()
@@ -523,10 +551,13 @@ class MNovoRuntime:
         spectra_device = spectra.to(self.device, non_blocking=True)
         precursors_device = precursors.to(self.device, non_blocking=True)
         autocast = self.options.precision == "bf16" and self.device.type == "cuda"
-        with torch.inference_mode(), torch.autocast(
-            device_type=self.device.type,
-            dtype=torch.bfloat16,
-            enabled=autocast,
+        with (
+            torch.inference_mode(),
+            torch.autocast(
+                device_type=self.device.type,
+                dtype=torch.bfloat16,
+                enabled=autocast,
+            ),
         ):
             memory, memory_mask = self.backbone.encoder(spectra_device)
             logits, _, _ = self.backbone.decoder(
@@ -567,9 +598,11 @@ class MNovoRuntime:
         indices: np.ndarray | None = None,
     ):
         valid_charge = np.arange(1, int(self.config["max_charge"]) + 1)
-        db_index = DB_Index(str(lmdb), None, 2, valid_charge, True, lock=False)
-        dataset = DbDataset(
-            [db_index],
+        spectrum_index = LmdbSpectrumIndex(
+            str(lmdb), None, 2, valid_charge, True, lock=False
+        )
+        dataset = SpectrumDataset(
+            [spectrum_index],
             n_peaks=int(self.config["n_peaks"]),
             min_mz=float(self.config["min_mz"]),
             max_mz=float(self.config["max_mz"]),

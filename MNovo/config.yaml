@@ -72,6 +72,7 @@ sync_batchnorm: false
 SWA: false
 
 train_batch_size: 32
+train_num_samples: 500000
 predict_batch_size: 64
 n_beams: 5
 logger:

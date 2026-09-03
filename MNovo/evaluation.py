@@ -41,13 +41,13 @@ def evaluate_predictions(
     config_path: str | Path,
     output_path: str | Path,
 ) -> dict:
-    from MNovo.denovo.db_dataset import DbDataset
-    from MNovo.denovo.db_index import DB_Index
+    from MNovo.denovo.spectrum_dataset import SpectrumDataset
+    from MNovo.denovo.spectrum_index import LmdbSpectrumIndex
     from MNovo.denovo.evaluate import aa_match_batch, aa_match_metrics
 
     config = yaml.safe_load(Path(config_path).read_text(encoding="utf-8"))
     valid_charge = np.arange(1, int(config["max_charge"]) + 1)
-    index = DB_Index(
+    index = LmdbSpectrumIndex(
         str(lmdb_path),
         None,
         2,
@@ -55,7 +55,7 @@ def evaluate_predictions(
         True,
         lock=False,
     )
-    dataset = DbDataset(
+    dataset = SpectrumDataset(
         [index],
         n_peaks=int(config["n_peaks"]),
         min_mz=float(config["min_mz"]),
@@ -69,9 +69,7 @@ def evaluate_predictions(
         for row in csv.DictReader(handle, delimiter="\t"):
             sequence = row.get("Sequence", row.get("peptide"))
             if sequence is None:
-                raise ValueError(
-                    "Prediction TSV must contain a Sequence column."
-                )
+                raise ValueError("Prediction TSV must contain a Sequence column.")
             predictions.append(tokens(sequence))
     total_spectra = len(dataset)
     if len(predictions) != total_spectra:

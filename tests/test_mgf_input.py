@@ -3,7 +3,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from MNovo.denovo.parser2 import MgfParser
+from MNovo.denovo.spectrum_parsers import MgfParser
 from MNovo.input import resolve_mgf_inputs
 from MNovo.cli import (
     DEFAULT_RELEASE,
@@ -16,9 +16,13 @@ from MNovo.cli import (
 )
 
 
-def test_default_release_is_in_repository_models_directory() -> None:
-    repository = Path(__file__).resolve().parents[1]
-    assert DEFAULT_RELEASE == repository / "models" / "pi-MNovo-v0.1.0.ckpt"
+def test_default_release_uses_working_directory_models() -> None:
+    assert DEFAULT_RELEASE == Path("models/pi-MNovo-v0.1.0.ckpt")
+
+
+def test_default_config_is_packaged() -> None:
+    package_root = Path(__file__).resolve().parents[1] / "MNovo"
+    assert (package_root / "config.yaml").is_file()
 
 
 def test_single_directory_and_case_insensitive_globs(tmp_path: Path) -> None:
@@ -126,9 +130,7 @@ def test_publication_output_row() -> None:
         "C+57.021": 160.030649,
     }
     calc_mh, modification = sequence_details("AC+57.021", residues)
-    assert calc_mh == pytest.approx(
-        71.037114 + 160.030649 + WATER_MASS + PROTON_MASS
-    )
+    assert calc_mh == pytest.approx(71.037114 + 160.030649 + WATER_MASS + PROTON_MASS)
     assert modification == "2,Carbamidomethyl[C];"
     record = {
         "title": "sample.42.42.2 scan=42",
@@ -154,10 +156,7 @@ def test_scan_number_falls_back_to_one_based_index() -> None:
 
 
 def test_scan_number_prefers_scan_over_earlier_index() -> None:
-    title = (
-        "Run: sample, Index: 2622, Scan: 2623, "
-        "ActivationType: HCD"
-    )
+    title = "Run: sample, Index: 2622, Scan: 2623, ActivationType: HCD"
     assert scan_number(title, 0) == 2623
 
 
@@ -172,8 +171,4 @@ def test_modification_output_uses_named_position_format() -> None:
         "+42.011AAAAAAAC+57.021AAAAAAAAAAAAAAAM+15.995",
         residues,
     )
-    assert modification == (
-        "0,Acetyl[AnyN-term];"
-        "8,Carbamidomethyl[C];"
-        "24,Oxidation[M];"
-    )
+    assert modification == ("0,Acetyl[AnyN-term];8,Carbamidomethyl[C];24,Oxidation[M];")

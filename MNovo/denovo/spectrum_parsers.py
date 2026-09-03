@@ -1,4 +1,5 @@
 """Mass spectrometry data parsers"""
+
 import logging
 from pathlib import Path
 from abc import ABC, abstractmethod
@@ -75,37 +76,26 @@ class BaseParser(ABC):
                     n_skipped += 1
 
         if n_skipped:
-            LOGGER.warning(
-                "Skipped %d spectra with invalid precursor info", n_skipped
-            )
-
-        #self.precursor_mz = np.array(self.precursor_mz, dtype=np.float32)
-        #self.precursor_charge = np.array(self.precursor_charge,dtype=np.float32,)
+            LOGGER.warning("Skipped %d spectra with invalid precursor info", n_skipped)
 
         self.scan_id = np.array(self.scan_id)
 
         # Build the index
         sizes = np.array([0] + [len(s) for s in self.mz_arrays])
         self.offset = sizes[:-1].cumsum()
-        #self.mz_arrays = np.array(self.mz_arrays, dtype = np.float32)
-        #self.intensity_arrays = np.array(self.intensity_arrays, dtype=np.float32)
-        #self.mz_arrays = np.concatenate(self.mz_arrays).astype(np.float64)
-        #self.intensity_arrays = np.concatenate(self.intensity_arrays).astype(np.float32)
 
     @property
     def n_spectra(self):
-
         """The number of spectra"""
 
         return self.offset.shape[0]
 
     @property
     def n_peaks(self):
-        #might not correct
+        # might not correct
         """The number of peaks in the file."""
         mz_arrays_temp = np.concatenate(self.mz_arrays)
         return mz_arrays_temp.shape[0]
-
 
 
 class MzmlParser(BaseParser):
@@ -187,7 +177,6 @@ class MzxmlParser(BaseParser):
             ms_level=ms_level,
             valid_charge=valid_charge,
         )
-
 
     def open(self):
         """Open the mzXML file for reading"""
@@ -275,19 +264,11 @@ class MgfParser(BaseParser):
 
         if self.valid_charge is None or precursor_charge in self.valid_charge:
             title = next(
-                (
-                    value
-                    for key, value in params.items()
-                    if str(key).lower() == "title"
-                ),
+                (value for key, value in params.items() if str(key).lower() == "title"),
                 f"index={self._counter}",
             )
             sequence = next(
-                (
-                    value
-                    for key, value in params.items()
-                    if str(key).lower() == "seq"
-                ),
+                (value for key, value in params.items() if str(key).lower() == "seq"),
                 None,
             )
             self.titles.append(str(title))

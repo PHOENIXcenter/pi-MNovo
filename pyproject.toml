@@ -37,6 +37,9 @@ pi-mnovo = "MNovo.cli:main"
 [tool.setuptools.packages.find]
 include = ["MNovo*"]
 
+[tool.setuptools.package-data]
+MNovo = ["config.yaml"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 

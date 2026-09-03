@@ -1,4 +1,5 @@
 """Simple encoders for input into Transformers and the like."""
+
 import torch
 import einops
 import numpy as np
@@ -31,12 +32,8 @@ class MassEncoder(torch.nn.Module):
             base = 1
             scale = max_wavelength / (2 * np.pi)
 
-        sin_term = base * scale ** (
-            torch.arange(0, n_sin).float() / (n_sin - 1)
-        )
-        cos_term = base * scale ** (
-            torch.arange(0, n_cos).float() / (n_cos - 1)
-        )
+        sin_term = base * scale ** (torch.arange(0, n_sin).float() / (n_sin - 1))
+        cos_term = base * scale ** (torch.arange(0, n_cos).float() / (n_cos - 1))
 
         self.register_buffer("sin_term", sin_term)
         self.register_buffer("cos_term", cos_term)

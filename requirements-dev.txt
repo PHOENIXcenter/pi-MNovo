@@ -1,3 +1,4 @@
 -r requirements.txt
+build==1.2.2.post1
 pytest==8.3.5
 ruff==0.11.2

@@ -99,9 +99,9 @@ def materialize_mgf_lmdb(
     annotated: bool = False,
 ) -> int:
     """Write resolved MGF spectra to a temporary inference LMDB."""
-    from MNovo.denovo.db_index import DB_Index
+    from MNovo.denovo.spectrum_index import LmdbSpectrumIndex
 
-    database = DB_Index(
+    database = LmdbSpectrumIndex(
         str(lmdb),
         [str(path) for path in sources],
         ms_level=2,

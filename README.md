@@ -134,10 +134,13 @@ pi-mnovo \
 
 `MNovo/config.yaml` is the default portable configuration. The command-line
 interface starts in de novo inference mode unless `--model eval` or
-`--model train` is selected. Dataset sampling,
-leakage control, and expert/ranker construction used for manuscript
-reproduction are documented separately because they depend on labelled
-training resources that are not distributed in this repository.
+`--model train` is selected. By default, backbone training draws 500,000
+spectra without replacement in each epoch; a new sample is drawn at the next
+epoch. This budget can be changed with `train_num_samples` in the YAML. Training
+logs, validation metrics, and checkpoints are written under the directory given
+by `--output`. Dataset sampling, leakage control, and expert/ranker construction
+used for manuscript reproduction are documented separately because they depend
+on labelled training resources that are not distributed in this repository.
 
 ## Tests
 

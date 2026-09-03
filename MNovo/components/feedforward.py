@@ -1,4 +1,5 @@
 """A flexible feed-forward neural network."""
+
 import torch
 import numpy as np
 

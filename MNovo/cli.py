@@ -27,11 +27,7 @@ from MNovo.evaluation import evaluate_predictions
 from MNovo.release import resolve_model_release
 from MNovo.runtime import MNovoRuntime, RuntimeOptions
 
-DEFAULT_RELEASE = (
-    Path(__file__).resolve().parents[1]
-    / "models"
-    / "pi-MNovo-v0.1.0.ckpt"
-)
+DEFAULT_RELEASE = Path("models/pi-MNovo-v0.1.0.ckpt")
 
 PROTON_MASS = 1.007276466621
 WATER_MASS = 18.0105646837
@@ -102,21 +98,18 @@ def output_row(
     residues: dict[str, float],
 ) -> list[str]:
     """Build one publication-facing TSV row without extra model work."""
-    title = str(
-        record.get("title", record.get("pep", f"index={dataset_index}"))
-    ).replace("\t", " ").replace("\r", " ").replace("\n", " ")
+    title = (
+        str(record.get("title", record.get("pep", f"index={dataset_index}")))
+        .replace("\t", " ")
+        .replace("\r", " ")
+        .replace("\n", " ")
+    )
     charge = int(record["precursor_charge"])
     precursor_mz = float(record["precursor_mz"])
-    exp_mh = (
-        precursor_mz * charge - (charge - 1) * PROTON_MASS
-        if charge > 0
-        else None
-    )
+    exp_mh = precursor_mz * charge - (charge - 1) * PROTON_MASS if charge > 0 else None
     calc_mh, modification = sequence_details(peptide, residues)
     mass_shift = (
-        exp_mh - calc_mh
-        if exp_mh is not None and calc_mh is not None
-        else None
+        exp_mh - calc_mh if exp_mh is not None and calc_mh is not None else None
     )
     number = lambda value: "" if value is None else f"{value:.6f}"
     return [
@@ -149,10 +142,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--config",
-        help=(
-            "Inference YAML. Defaults to "
-            "<model-dir>/config/inference.yaml."
-        ),
+        help=("Inference YAML. Defaults to <model-dir>/config/inference.yaml."),
     )
     inputs = parser.add_mutually_exclusive_group(required=True)
     inputs.add_argument(
@@ -261,9 +251,10 @@ def run(
     count = 0
     route_counts = {"r1": 0, "r2_long": 0, "r3_fragment": 0}
     temporary = output.with_suffix(output.suffix + ".tmp")
-    with temporary.open("w", encoding="utf-8") as handle, LmdbTitleLookup(
-        lmdb
-    ) as titles:
+    with (
+        temporary.open("w", encoding="utf-8") as handle,
+        LmdbTitleLookup(lmdb) as titles,
+    ):
         handle.write(
             "TITLE\tScan_No\tExp.MH+\tCharge\tSequence\tCalc.MH+\t"
             "Mass_Shift(Exp.-Calc.)\tScore\tModification\n"
@@ -366,7 +357,7 @@ def main() -> None:
         command = [
             sys.executable,
             "-m",
-            "MNovo.MNovo",
+            "MNovo.backbone_cli",
             "--mode",
             "train",
             "--peak_path",
@@ -387,9 +378,7 @@ def main() -> None:
 
     if args.lmdb:
         lmdb_path = str(Path(args.lmdb).expanduser())
-        context = nullcontext(
-            (lmdb_path, [], lmdb_spectra_count(lmdb_path))
-        )
+        context = nullcontext((lmdb_path, [], lmdb_spectra_count(lmdb_path)))
     else:
         sources = resolve_mgf_inputs(args.input)
         print(

@@ -1,4 +1,5 @@
 """Small utility functions"""
+
 import os
 import platform
 import re
@@ -32,9 +33,7 @@ def n_workers() -> int:
         n_cpu = len(psutil.Process().cpu_affinity())
     except AttributeError:
         n_cpu = os.cpu_count()
-    return (
-        n_cpu // n_gpu if (n_gpu := torch.cuda.device_count()) > 1 else n_cpu
-    )
+    return n_cpu // n_gpu if (n_gpu := torch.cuda.device_count()) > 1 else n_cpu
 
 
 def split_version(version: str) -> Tuple[str, str, str]:
