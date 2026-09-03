@@ -1,0 +1,11 @@
+cff-version: 1.2.0
+message: "If you use pi-MNovo, please cite this software and the associated paper."
+title: "pi-MNovo"
+type: software
+authors:
+  - family-names: "Ye"
+    given-names: "Jingwen"
+version: 0.1.0
+date-released: 2026-09-03
+repository-code: "https://github.com/ye-jing-wen/pi-MNovo"
+license: MIT

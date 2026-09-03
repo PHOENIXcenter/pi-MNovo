@@ -1,0 +1,84 @@
+random_seed: 3407
+
+PMC_enable: true
+mass_control_tol: 0.1
+custom_ctc: false
+
+n_peaks: 800
+min_mz: 1.0
+max_mz: 6500.0
+min_intensity: 0.0
+remove_precursor_tol: 1.0
+max_charge: 10
+precursor_mass_tol: 50.0
+isotope_error_range: [0, 1]
+
+dim_model: 400
+n_head: 8
+dim_feedforward: 1024
+n_layers: 9
+dropout: 0.18
+dim_intensity:
+custom_encoder:
+max_length: 40
+residues:
+  G: 57.021464
+  A: 71.037114
+  S: 87.032028
+  P: 97.052764
+  V: 99.068414
+  T: 101.047670
+  "C+57.021": 160.030649
+  L: 113.084064
+  I: 113.084064
+  N: 114.042927
+  D: 115.026943
+  Q: 128.058578
+  K: 128.094963
+  E: 129.042593
+  M: 131.040485
+  H: 137.058912
+  F: 147.068414
+  R: 156.101111
+  Y: 163.063329
+  W: 186.079313
+  "M+15.995": 147.035400
+  "N+0.984": 115.026943
+  "Q+0.984": 129.042594
+  "+42.011": 42.010565
+  "+43.006": 43.005814
+  "-17.027": -17.026549
+  "+43.006-17.027": 25.980265
+
+n_log: 1
+tb_summarywriter:
+warmup_iters:
+max_iters:
+max_epochs: 10
+warm_up_epochs: 1
+learning_rate: 0.000175
+weight_decay: 0.00008
+gradient_clip_val: 2.5
+gradient_clip_algorithm: norm
+accumulate_grad_batches: 1
+sync_batchnorm: false
+SWA: false
+
+train_batch_size: 32
+predict_batch_size: 64
+n_beams: 5
+logger:
+num_sanity_val_steps: 0
+n_workers: 8
+val_interval: 1
+trainer_precision: bf16-mixed
+
+train_from_scratch: false
+load_file_name:
+n_nodes: 1
+save_model: true
+train_from_resume: false
+model_save_folder_path: ./checkpoints
+save_weights_only: true
+every_n_train_steps: 2500
+temp_dir_auto: true

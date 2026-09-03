@@ -1,0 +1,10 @@
+name: pi-mnovo
+channels:
+  - conda-forge
+dependencies:
+  - python=3.10
+  - pip=24.0
+  - setuptools=80.9.0
+  - pip:
+      - wheels/ctcdecode-1.0.3-cp310-cp310-linux_x86_64.whl
+      - -r requirements.txt

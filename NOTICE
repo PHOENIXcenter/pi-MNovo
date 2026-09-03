@@ -1,0 +1,7 @@
+pi-MNovo includes code derived from the MIT-licensed Casanovo/PrimeNovo codebase.
+The original copyright and permission notice are retained in LICENSE.
+
+The release runtime uses third-party packages under their respective licenses,
+including PyTorch, PyTorch Lightning, Depthcharge, CuPy, and ctcdecode.
+The redistributed ctcdecode binary wheel retains its MIT license in
+third_party/ctcdecode_LICENSE.
