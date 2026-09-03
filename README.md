@@ -34,12 +34,38 @@ cd pi-MNovo
 conda env create -f environment.yml
 conda activate pi-mnovo
 pip install -e . --no-deps
-python scripts/download_model.py
 ```
 
 The environment installs the bundled `ctcdecode` wheel for Python 3.10 on
 Linux x86-64. It was built against PyTorch 2.5.1. Other platforms require rebuilding
 [ctcdecode](https://github.com/parlance/ctcdecode) against the active PyTorch.
+
+## Model checkpoint
+
+The unified checkpoint is distributed as an asset of the
+[v0.1.0 GitHub Release](https://github.com/ye-jing-wen/pi-MNovo/releases/tag/v0.1.0),
+rather than being stored in the Git repository. Download and verify it with:
+
+```bash
+python scripts/download_model.py
+```
+
+By default, the checkpoint is saved as:
+
+```text
+models/pi-MNovo-v0.1.0.ckpt
+```
+
+The downloader verifies the file against the release SHA256 and removes an
+incomplete or mismatched download. To use a different destination:
+
+```bash
+python scripts/download_model.py \
+  --output /your/path/pi-MNovo-v0.1.0.ckpt
+```
+
+The checkpoint can also be downloaded directly from the
+[release asset](https://github.com/ye-jing-wen/pi-MNovo/releases/download/v0.1.0/pi-MNovo-v0.1.0.ckpt).
 
 ## De novo prediction
 
