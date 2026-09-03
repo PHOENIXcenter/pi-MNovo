@@ -127,12 +127,14 @@ pi-mnovo \
   --input './train/**/*.mgf' \
   --validation-input './valid/**/*.mgf' \
   --test-input './test/**/*.mgf' \
-  --config configs/train.yaml \
+  --config MNovo/config.yaml \
   --checkpoint path/to/initial_backbone.ckpt \
   --output runs/backbone
 ```
 
-`configs/train.yaml` is a portable starting configuration. Dataset sampling,
+`MNovo/config.yaml` is the default portable configuration. The command-line
+interface starts in de novo inference mode unless `--model eval` or
+`--model train` is selected. Dataset sampling,
 leakage control, and expert/ranker construction used for manuscript
 reproduction are documented separately because they depend on labelled
 training resources that are not distributed in this repository.
@@ -147,5 +149,5 @@ python scripts/verify_release.py --checkpoint models/pi-MNovo-v0.1.0.ckpt
 
 ## License and citation
 
-The code is released under the MIT License. See `NOTICE` and `third_party/`
-for upstream attribution and `CITATION.cff` for citation metadata.
+The code is released under the MIT License. See `NOTICE` for upstream
+attribution and `CITATION.cff` for citation metadata.

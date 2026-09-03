@@ -1,3 +1,10 @@
+# The command-line interface defaults to de novo inference in fast mode.
+runtime:
+  mode: fast
+  batch_size: 128
+  n_workers: 16
+  ctc_processes: 16
+
 random_seed: 3407
 
 PMC_enable: true
