@@ -14,7 +14,7 @@ verified as relative to the active environment's PyTorch libraries.
 ## Automated checks
 
 - Ruff static check: passed.
-- Pytest: 16 passed.
+- Pytest: 17 passed.
 - Unified checkpoint SHA256: passed.
 - Embedded component hashes and required-component inventory: passed.
 - Backbone repackaging audit: all 286 state tensors were bitwise equal.

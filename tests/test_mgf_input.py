@@ -5,7 +5,8 @@ import pytest
 
 from MNovo.denovo.parser2 import MgfParser
 from MNovo.input import resolve_mgf_inputs
-from predict import (
+from MNovo.cli import (
+    DEFAULT_RELEASE,
     PROTON_MASS,
     WATER_MASS,
     apply_config,
@@ -13,6 +14,11 @@ from predict import (
     scan_number,
     sequence_details,
 )
+
+
+def test_default_release_is_in_repository_models_directory() -> None:
+    repository = Path(__file__).resolve().parents[1]
+    assert DEFAULT_RELEASE == repository / "models" / "pi-MNovo-v0.1.0.ckpt"
 
 
 def test_single_directory_and_case_insensitive_globs(tmp_path: Path) -> None:
@@ -87,7 +93,7 @@ def test_cli_defaults_to_automatic_device(monkeypatch) -> None:
         "sys.argv",
         ["pi-mnovo", "--input", "input.mgf", "--output", "output.tsv"],
     )
-    from predict import parse_args
+    from MNovo.cli import parse_args
 
     assert parse_args().device == "auto"
 

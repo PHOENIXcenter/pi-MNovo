@@ -32,10 +32,7 @@ dependencies = [
 ]
 
 [project.scripts]
-pi-mnovo = "predict:main"
-
-[tool.setuptools]
-py-modules = ["predict"]
+pi-mnovo = "MNovo.cli:main"
 
 [tool.setuptools.packages.find]
 include = ["MNovo*"]
