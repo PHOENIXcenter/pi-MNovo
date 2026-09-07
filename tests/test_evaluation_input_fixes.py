@@ -126,3 +126,62 @@ def test_offline_and_batched_validation_use_identical_metrics(tmp_path):
         assert result[output] == aggregate[name].compute().item()
     assert result["aa_precision"] == 1.0
     assert result["peptide_recall"] == 1 / 3
+
+
+@pytest.mark.parametrize("failure,expected", [
+    ("model", "initialization_failed"), ("config", "initialization_failed"),
+    ("input", "input_failed"), ("prediction", "prediction_failed"),
+    ("evaluation", "evaluation_failed"),
+])
+def test_cli_failure_state_covers_every_phase(tmp_path, monkeypatch, failure, expected):
+    path, _ = config(tmp_path)
+    source = tmp_path / "input.mgf"
+    source.write_text(block("good"))
+    output = tmp_path / "result.tsv"
+    monkeypatch.setattr(sys, "argv", ["pi-mnovo", "--model", "eval", "--input", str(source),
+                        "--output", str(output), "--model-dir", str(tmp_path)])
+    if failure != "model":
+        monkeypatch.setattr(cli, "resolve_model_release", lambda _: tmp_path)
+    if failure == "config":
+        path.write_text("invalid: [")
+    if failure == "input":
+        source.unlink()
+    if failure == "prediction":
+        def fail(*args):
+            raise RuntimeError("injected inference failure")
+        monkeypatch.setattr(cli, "run", fail)
+    if failure == "evaluation":
+        def wrong_output(*args):
+            output.write_text("WrongColumn\nAK\n")
+            return 1
+        monkeypatch.setattr(cli, "run", wrong_output)
+    with pytest.raises(Exception):
+        cli.main()
+    result = json.loads(output.with_suffix(".metrics.json").read_text())
+    assert result["status"] == expected
+    assert result["error"] and result["error_type"]
+    assert result["peptide_recall"] is None
+
+
+def test_index_alignment_and_invalid_indices(tmp_path):
+    path, values = config(tmp_path)
+    source = tmp_path / "input.mgf"
+    source.write_text(block("one", seq="AK") + block("two", seq="AA"))
+    db = tmp_path / "input.lmdb"
+    materialize_mgf_lmdb([source], db, 10, annotated=True, preprocessing_config=values)
+    output = tmp_path / "metrics.json"
+    prediction = tmp_path / "pred.tsv"
+    for content in ("0\tAK\n1\tAA\n", "1\tAA\n0\tAK\n"):
+        prediction.write_text("dataset_index\tSequence\n" + content)
+        result = evaluate_predictions(prediction, db, path, output)
+        assert result["peptide_recall"] == 1.0
+        assert result["prediction_alignment"] == "dataset_index"
+    for content in ("0\tAK\n0\tAA\n", "0\tAK\n2\tAA\n", "-1\tAK\n1\tAA\n",
+                    "\tAK\n1\tAA\n", "0.0\tAK\n1\tAA\n", "0\tAK\n"):
+        prediction.write_text("dataset_index\tSequence\n" + content)
+        with pytest.raises((ValueError, RuntimeError)):
+            evaluate_predictions(prediction, db, path, output)
+        assert json.loads(output.read_text())["status"] == "evaluation_failed"
+    prediction.write_text("Sequence\nAK\nAA\n")
+    result = evaluate_predictions(prediction, db, path, output)
+    assert result["prediction_alignment"] == "row_order_without_index"

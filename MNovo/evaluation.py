@@ -127,18 +127,43 @@ def _evaluate_predictions(
             random_state=3407,
         )
         predictions: list[str] = []
+        prediction_indices = []
+        total_spectra = len(dataset)
         with Path(predictions_path).open(encoding="utf-8", newline="") as handle:
-            for row in csv.DictReader(handle, delimiter="\t"):
+            reader = csv.DictReader(handle, delimiter="\t")
+            fields = reader.fieldnames or []
+            if "Sequence" not in fields and "peptide" not in fields:
+                raise ValueError("Prediction TSV must contain a Sequence column.")
+            indexed = "dataset_index" in fields
+            seen = set()
+            for row_number, row in enumerate(reader, 2):
                 sequence = row.get("Sequence", row.get("peptide"))
                 if sequence is None:
                     raise ValueError("Prediction TSV must contain a Sequence column.")
                 predictions.append(sequence)
-        total_spectra = len(dataset)
+                if indexed:
+                    value = row.get("dataset_index")
+                    if value is None or not re.fullmatch(r"[0-9]+", value.strip()):
+                        raise ValueError(f"Invalid dataset_index at TSV row {row_number}: {value!r}")
+                    position = int(value)
+                    if position >= total_spectra:
+                        raise ValueError(f"dataset_index {position} out of range 0..{total_spectra - 1}")
+                    if position in seen:
+                        raise ValueError(f"Duplicate dataset_index {position}")
+                    seen.add(position)
+                    prediction_indices.append(position)
         if len(predictions) != total_spectra:
             raise RuntimeError(
                 f"Prediction count mismatch: {len(predictions)} vs {total_spectra}. "
                 "Peptide recall must use every input spectrum as its denominator."
             )
+
+        if indexed:
+            # Range + uniqueness + exact row count guarantee full coverage.
+            ordered = [None] * total_spectra
+            for position, prediction in zip(prediction_indices, predictions):
+                ordered[position] = prediction
+            predictions = ordered
 
         truths = [index[position][-1] for position in range(total_spectra)]
         counts = match_counts(truths, predictions, config["residues"])
@@ -150,6 +175,7 @@ def _evaluate_predictions(
         peptide_recall = metrics["pep_recall"]
         result = {
             "status": "complete" if total_spectra else "no_evaluable_spectra",
+            "prediction_alignment": "dataset_index" if indexed else "row_order_without_index",
             "spectra": total_spectra,
             "peptide_recall_denominator_count": total_spectra,
             "n_aa_true": int(n_aa_true),

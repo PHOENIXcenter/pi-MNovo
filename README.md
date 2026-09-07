@@ -5,12 +5,10 @@ mass spectra. The release combines a non-autoregressive CTC backbone,
 precise-mass-control candidate generation, three candidate-ranking paths, and
 a conservative observable router in one inference entry point.
 
-## Release status
+## Package and checkpoint
 
-This working tree contains the **unreleased 0.1.1.dev0 review corrections**.
-It is not a new frozen manuscript release and has not reproduced the historical GPU benchmark.
-See [review disposition](docs/CODE_REVIEW_20260907.md) for validation and open evidence.
-The unchanged historical unified checkpoint is `pi-MNovo-v0.1.0.ckpt` with SHA256:
+The Python package version is `0.1.1.dev0`. The downloadable unified checkpoint
+is `pi-MNovo-v0.1.0.ckpt`, with SHA256:
 
 ```text
 1de589a887a7b7271aae794b90850ece6c3c68c6d085374d0b32e40ec18d617f
@@ -35,15 +33,15 @@ The selected peptide is reported with a calibrated `Score` between 0 and 1.
 
 ## System requirements
 
-- Linux x86-64
-- NVIDIA GPU with a CUDA 12 compatible driver
+- Linux x86-64 with glibc 2.34 or newer
+- NVIDIA GPU supporting BF16, with a CUDA 12 compatible driver
 - Conda or Mamba
 - Python 3.10
 
 ## Installation
 
 ```bash
-git clone https://github.com/ye-jing-wen/pi-MNovo.git
+git clone https://github.com/PHOENIXcenter/pi-MNovo.git
 cd pi-MNovo
 conda env create -f environment.yml
 conda activate pi-mnovo
@@ -57,7 +55,7 @@ Linux x86-64. It was built against PyTorch 2.5.1. Other platforms require rebuil
 ## Model checkpoint
 
 The unified checkpoint is distributed as an asset of the
-[v0.1.0 GitHub Release](https://github.com/ye-jing-wen/pi-MNovo/releases/tag/v0.1.0),
+[v0.1.0 GitHub Release](https://github.com/PHOENIXcenter/pi-MNovo/releases/tag/v0.1.0),
 rather than being stored in the Git repository. Download and verify it with:
 
 ```bash
@@ -79,7 +77,7 @@ python scripts/download_model.py \
 ```
 
 The checkpoint can also be downloaded directly from the
-[release asset](https://github.com/ye-jing-wen/pi-MNovo/releases/download/v0.1.0/pi-MNovo-v0.1.0.ckpt).
+[release asset](https://github.com/PHOENIXcenter/pi-MNovo/releases/download/v0.1.0/pi-MNovo-v0.1.0.ckpt).
 
 ## De novo prediction
 
@@ -90,16 +88,16 @@ do not need to be supplied on every invocation.
 ```bash
 pi-mnovo \
   --model denovo \
-  --input example.mgf \
+  --input tests/data/synthetic.mgf \
   --output predictions.tsv
 ```
 
 CUDA is selected automatically. Production inference requires an NVIDIA GPU.
-Union inference now fails before loading weights if CUDA is unavailable.
+Union inference fails before loading weights if CUDA is unavailable.
 For a diagnostic Beam5-only run, explicitly pass `--device cpu --candidate-mode beam-only`;
 this changes the candidate algorithm and must not be compared as the frozen union system.
-The ctcdecode extension is still required. PMC errors abort union inference.
-TSV output appends `Status`, `Route`, and `dataset_index`; an empty pool reports
+The ctcdecode extension is required. PMC errors abort union inference.
+TSV output includes `Status`, `Route`, and `dataset_index`; an empty pool reports
 `no_valid_candidate`, route `none`, and Score 0 without ranking or calibration.
 
 Directory and glob examples:
@@ -130,13 +128,13 @@ MGF acceptance also checks the checkpoint's actual peak preprocessing settings.
 Zero/negative intensities, invalid normalized peaks, and spectra with no peaks
 remaining after m/z, precursor or intensity filtering are rejected with the
 filter stage, configured limits and observed peak/intensity values. Other spectra
-continue normally; rejected inputs are not replaced with dummy peaks for MGF inference.
+continue normally.
 
 The output columns are:
 
 ```text
 TITLE  Scan_No  Exp.MH+  Charge  Sequence  Calc.MH+
-Mass_Shift(Exp.-Calc.)  Score  Modification
+Mass_Shift(Exp.-Calc.)  Score  Modification  Status  Route  dataset_index
 ```
 
 `Score` is a calibrated value in `[0, 1]`; larger values indicate higher
@@ -162,27 +160,30 @@ predictions. Metrics explicitly report `original_input`, `accepted`, `rejected`,
 `evaluable_spectra`, and `peptide_recall_denominator=accepted_input_spectra`.
 Pre-existing LMDB input is labelled `provided_lmdb_spectra`, with unknown original
 MGF and rejection counts set to null. Every evaluation replaces prior metric
-state; all-rejected input writes `no_evaluable_spectra` and null recall/precision,
-not old values or a misleading zero. Evaluation failures write `evaluation_failed`.
+state; all-rejected input writes `no_evaluable_spectra` and null recall/precision.
+Evaluation failures write `evaluation_failed`.
+Failures during setup, input preparation and inference write `initialization_failed`,
+`input_failed` and `prediction_failed`, respectively, with the error type and reason.
+When a prediction TSV includes `dataset_index`, evaluation validates unique integer
+indices covering every accepted spectrum and aligns sequences by that index.
+Reordering indexed rows does not change the result. TSVs without indices
+use row order and explicitly report `prediction_alignment=row_order_without_index`.
 
 Backbone validation and CLI evaluation share the same truth-first integer counters
 and ratio definitions in `MNovo.denovo.metric_counts`. Empty or unsupported
 predictions count as failed predictions, not excluded spectra. Invalid references
 are errors. Counts are summed before division, including short final batches.
-The legacy `aa_match_metrics` and unused threshold metric function have been removed;
-the mass-based sequence matching algorithm remains shared and unchanged.
+Sequence matching uses the same mass-based algorithm in both entry points.
 
 ## Backbone training
 
-Training accepts MGF files or globs for separate training, validation, and test
-roles. Do not reuse evaluation peptides during model or threshold selection.
+Training accepts MGF files or globs for separate training and validation inputs. Do not reuse evaluation peptides during model or threshold selection.
 
 ```bash
 pi-mnovo \
   --model train \
   --input './train/**/*.mgf' \
   --validation-input './valid/**/*.mgf' \
-  --test-input './test/**/*.mgf' \
   --config MNovo/config.yaml \
   --checkpoint path/to/initial_backbone.ckpt \
   --output runs/backbone
@@ -211,12 +212,12 @@ python scripts/verify_release.py --checkpoint models/pi-MNovo-v0.1.0.ckpt
 The code is released under the MIT License. See `NOTICE` for upstream
 attribution and `CITATION.cff` for citation metadata.
 
-## Review correction utilities
+## Data validation utilities
 
 `python scripts/audit_training_labels.py --labels labels.tsv --output audit.json`
 audits explicit data roles, full CTC feasibility (including adjacent repeats),
 unsupported labels and canonical-key intersections. Input columns are `role` and
-`sequence`. This is an audit of supplied rows, not proof of historical exposure.
+`sequence`. The report describes the supplied label rows.
 
 `python scripts/audit_checkpoint_metadata.py --checkpoint MODEL --report audit.json`
 scans nested metadata. Add `--output NEW_CANDIDATE` to sanitize local paths and verify
@@ -224,11 +225,11 @@ all component tensors; it never overwrites or promotes an existing asset.
 
 Training accepts only training and validation inputs. `--test-input`/`--peak_path_test`
 is deprecated and ignored; evaluate final test only after all selection decisions freeze.
-Unalignable training/validation loss targets now raise an error; audit and construct an
-explicit eligible loss subset before fitting. Final recall continues to include all spectra.
+Unalignable training/validation loss targets raise an error; audit and construct an
+explicit eligible loss subset before fitting. Final recall includes every accepted spectrum, including empty predictions.
 `eval` rejects `--indices` and `--max-samples` rather than silently changing its denominator.
 
-The supported full installation remains **source checkout (or sdist) + environment.yml on Linux
+The supported full installation is **source checkout (or sdist) + environment.yml on Linux
 Python 3.10**, including the bundled native decoder. A standalone `pip install` of the
 Python wheel does not install a complete sequencing environment. CPU invariant tests can
 run without CuPy or ctcdecode; that is not an end-to-end inference certification.

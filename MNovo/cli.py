@@ -417,119 +417,128 @@ def main() -> None:
             raise ValueError("Metrics and prediction outputs must be different files.")
         write_metrics_state(metrics_output, dict(status="in_progress", peptide_recall=None,
                                                  aa_precision=None, aa_recall=None))
-    if parsed.task != "train":
-        parsed.model_dir = str(resolve_model_release(parsed.model_dir))
-    config_was_explicit = parsed.config is not None
-    args = apply_config(parsed)
-    if args.task == "train":
-        if args.lmdb:
-            raise ValueError("--model train requires MGF input, not --lmdb.")
-        if not config_was_explicit:
-            raise ValueError("--model train requires an explicit training --config.")
-        if not args.validation_input:
-            raise ValueError("--model train requires --validation-input.")
-        command = [
-            sys.executable,
-            "-m",
-            "MNovo.backbone_cli",
-            "--mode",
-            "train",
-            "--peak_path",
-            args.input,
-            "--peak_path_val",
-            args.validation_input,
-            "--config",
-            args.config,
-            "--output",
-            args.output,
-        ]
-        if args.checkpoint:
-            command.extend(["--model", args.checkpoint])
-        subprocess.run(command, check=True)
-        return
-
-    audit = None
-    if args.lmdb:
-        lmdb_path = str(Path(args.lmdb).expanduser())
-        context = nullcontext((lmdb_path, [], lmdb_spectra_count(lmdb_path)))
-    else:
-        sources = resolve_mgf_inputs(args.input)
-        print(
-            json.dumps(
-                {
-                    "status": "materializing_mgf",
-                    "input_files": len(sources),
-                    "first_file": str(sources[0]),
-                    "last_file": str(sources[-1]),
-                },
-                sort_keys=True,
-            ),
-            flush=True,
-        )
-        temporary = tempfile.TemporaryDirectory(
-            prefix="mnovo_mgf_",
-            dir=args.temp_dir,
-        )
-
-        class MgfContext:
-            def __enter__(self):
-                nonlocal audit
-                lmdb = Path(temporary.name) / "input.lmdb"
-                audit = InputAudit(args.output)
-                with audit:
-                    count = materialize_mgf_lmdb(
-                        sources,
-                        lmdb,
-                        max_charge=args.max_charge,
-                        annotated=args.task == "eval",
-                        audit=audit,
-                        preprocessing_config=yaml.safe_load(Path(args.config).read_text(encoding="utf-8")),
-                    )
-                print(
-                    json.dumps(
-                        {
-                            "status": "mgf_ready",
-                            "input_files": len(sources),
-                            "spectra": count,
-                            "temporary_lmdb": str(lmdb),
-                        },
-                        sort_keys=True,
-                    ),
-                    flush=True,
-                )
-                return str(lmdb), sources, count
-
-            def __exit__(self, exc_type, exc_value, traceback):
-                temporary.cleanup()
-
-        context = MgfContext()
-    with context as (lmdb, input_files, total_spectra):
-        try:
-            predicted = run(args, lmdb, input_files, total_spectra)
-        except Exception:
-            if audit:
-                audit.save("prediction_failed")
-            if args.task == "eval":
-                write_metrics_state(metrics_output, dict(status="prediction_failed", peptide_recall=None,
-                                                         aa_precision=None, aa_recall=None))
-            raise
-        if audit:
-            not_selected = total_spectra - predicted
-            status = "complete_with_rejections" if audit.rejected else "complete"
-            if not predicted:
-                status = "no_predictions"
-            result = audit.save(status, predicted, not_selected)
-            print(json.dumps({"input_accounting": result}, ensure_ascii=False, indent=2))
-        if args.task == "eval":
-            result = evaluate_predictions(
-                args.output,
-                lmdb,
+    phase = "initialization"
+    try:
+        if parsed.task != "train":
+            parsed.model_dir = str(resolve_model_release(parsed.model_dir))
+        config_was_explicit = parsed.config is not None
+        args = apply_config(parsed)
+        if args.task == "train":
+            if args.lmdb:
+                raise ValueError("--model train requires MGF input, not --lmdb.")
+            if not config_was_explicit:
+                raise ValueError("--model train requires an explicit training --config.")
+            if not args.validation_input:
+                raise ValueError("--model train requires --validation-input.")
+            command = [
+                sys.executable,
+                "-m",
+                "MNovo.backbone_cli",
+                "--mode",
+                "train",
+                "--peak_path",
+                args.input,
+                "--peak_path_val",
+                args.validation_input,
+                "--config",
                 args.config,
-                metrics_output,
-                input_counts=dict(original_input=audit.total, accepted=audit.accepted,
-                                  rejected=audit.rejected) if audit else None,
+                "--output",
+                args.output,
+            ]
+            if args.checkpoint:
+                command.extend(["--model", args.checkpoint])
+            subprocess.run(command, check=True)
+            return
+
+        phase = "input"
+        audit = None
+        if args.lmdb:
+            lmdb_path = str(Path(args.lmdb).expanduser())
+            context = nullcontext((lmdb_path, [], lmdb_spectra_count(lmdb_path)))
+        else:
+            sources = resolve_mgf_inputs(args.input)
+            print(
+                json.dumps(
+                    {
+                        "status": "materializing_mgf",
+                        "input_files": len(sources),
+                        "first_file": str(sources[0]),
+                        "last_file": str(sources[-1]),
+                    },
+                    sort_keys=True,
+                ),
+                flush=True,
             )
-            print(json.dumps({"evaluation": result}, indent=2, sort_keys=True))
+            temporary = tempfile.TemporaryDirectory(
+                prefix="mnovo_mgf_",
+                dir=args.temp_dir,
+            )
+
+            class MgfContext:
+                def __enter__(self):
+                    nonlocal audit
+                    lmdb = Path(temporary.name) / "input.lmdb"
+                    audit = InputAudit(args.output)
+                    with audit:
+                        count = materialize_mgf_lmdb(
+                            sources,
+                            lmdb,
+                            max_charge=args.max_charge,
+                            annotated=args.task == "eval",
+                            audit=audit,
+                            preprocessing_config=yaml.safe_load(Path(args.config).read_text(encoding="utf-8")),
+                        )
+                    print(
+                        json.dumps(
+                            {
+                                "status": "mgf_ready",
+                                "input_files": len(sources),
+                                "spectra": count,
+                                "temporary_lmdb": str(lmdb),
+                            },
+                            sort_keys=True,
+                        ),
+                        flush=True,
+                    )
+                    return str(lmdb), sources, count
+
+                def __exit__(self, exc_type, exc_value, traceback):
+                    temporary.cleanup()
+
+            context = MgfContext()
+        with context as (lmdb, input_files, total_spectra):
+            phase = "prediction"
+            try:
+                predicted = run(args, lmdb, input_files, total_spectra)
+            except Exception:
+                if audit:
+                    audit.save("prediction_failed")
+                raise
+            if audit:
+                not_selected = total_spectra - predicted
+                status = "complete_with_rejections" if audit.rejected else "complete"
+                if not predicted:
+                    status = "no_predictions"
+                result = audit.save(status, predicted, not_selected)
+                print(json.dumps({"input_accounting": result}, ensure_ascii=False, indent=2))
+            if args.task == "eval":
+                phase = "evaluation"
+                result = evaluate_predictions(
+                    args.output,
+                    lmdb,
+                    args.config,
+                    metrics_output,
+                    input_counts=dict(original_input=audit.total, accepted=audit.accepted,
+                                      rejected=audit.rejected) if audit else None,
+                )
+                print(json.dumps({"evaluation": result}, indent=2, sort_keys=True))
+    except Exception as error:
+        if parsed.task == "eval":
+            write_metrics_state(metrics_output, dict(
+                status=f"{phase}_failed", error_type=type(error).__name__, error=str(error),
+                peptide_recall=None, aa_precision=None, aa_recall=None,
+            ))
+        raise
 
 
 if __name__ == "__main__":
