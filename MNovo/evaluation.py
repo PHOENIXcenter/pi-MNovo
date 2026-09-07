@@ -5,6 +5,8 @@ from __future__ import annotations
 import csv
 import json
 import re
+import os
+import tempfile
 from pathlib import Path
 
 import numpy as np
@@ -55,7 +57,46 @@ def tokens(sequence: str | None) -> list[str]:
     return result
 
 
-def evaluate_predictions(
+def write_metrics_state(path, result):
+    """Atomically replace metrics, including non-success states for this run."""
+    output = Path(path)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=output.parent,
+                                     delete=False, suffix=".json.tmp") as handle:
+        temporary = Path(handle.name)
+        json.dump(result, handle, indent=2, sort_keys=True, allow_nan=False)
+    try:
+        os.replace(temporary, output)
+    finally:
+        temporary.unlink(missing_ok=True)
+    return result
+
+
+def evaluate_predictions(predictions_path, lmdb_path, config_path, output_path,
+                         input_counts=None):
+    try:
+        result = _evaluate_predictions(predictions_path, lmdb_path, config_path, output_path)
+        total = result["spectra"]
+        counts = input_counts or {"original_input": None, "accepted": total, "rejected": None}
+        if counts["accepted"] != total:
+            raise ValueError("Evaluation count does not match accepted input count")
+        if input_counts is not None and (
+            counts["rejected"] < 0 or counts["original_input"] != total + counts["rejected"]
+        ):
+            raise ValueError("Original input must equal accepted plus rejected")
+        result.update(counts)
+        result["evaluable_spectra"] = total
+        result["peptide_recall_denominator"] = (
+            "accepted_input_spectra" if input_counts is not None else "provided_lmdb_spectra")
+        return write_metrics_state(output_path, result)
+    except Exception as error:
+        write_metrics_state(output_path, dict(status="evaluation_failed",
+                            error=str(error), peptide_recall=None,
+                            aa_precision=None, aa_recall=None))
+        raise
+
+
+def _evaluate_predictions(
     predictions_path: str | Path,
     lmdb_path: str | Path,
     config_path: str | Path,
@@ -63,7 +104,7 @@ def evaluate_predictions(
 ) -> dict:
     from MNovo.denovo.spectrum_dataset import SpectrumDataset
     from MNovo.denovo.spectrum_index import LmdbSpectrumIndex
-    from MNovo.denovo.evaluate import aa_match_batch, aa_match_metrics
+    from MNovo.denovo.metric_counts import match_counts, metric_components, count_ratio
 
     config = yaml.safe_load(Path(config_path).read_text(encoding="utf-8"))
     valid_charge = np.arange(1, int(config["max_charge"]) + 1)
@@ -75,85 +116,54 @@ def evaluate_predictions(
         True,
         lock=False,
     )
-    dataset = SpectrumDataset(
-        [index],
-        n_peaks=int(config["n_peaks"]),
-        min_mz=float(config["min_mz"]),
-        max_mz=float(config["max_mz"]),
-        min_intensity=float(config["min_intensity"]),
-        remove_precursor_tol=float(config["remove_precursor_tol"]),
-        random_state=3407,
-    )
-    predictions: list[list[str]] = []
-    with Path(predictions_path).open(encoding="utf-8", newline="") as handle:
-        for row in csv.DictReader(handle, delimiter="\t"):
-            sequence = row.get("Sequence", row.get("peptide"))
-            if sequence is None:
-                raise ValueError("Prediction TSV must contain a Sequence column.")
-            parsed = tokens(sequence)
-            if any(token not in config["residues"] for token in parsed):
-                raise ValueError(
-                    f"Prediction token missing from configured residue masses: {sequence!r}"
-                )
-            predictions.append(parsed)
-    total_spectra = len(dataset)
-    if len(predictions) != total_spectra:
-        raise RuntimeError(
-            f"Prediction count mismatch: {len(predictions)} vs {total_spectra}. "
-            "Peptide recall must use every input spectrum as its denominator."
+    try:
+        dataset = SpectrumDataset(
+            [index],
+            n_peaks=int(config["n_peaks"]),
+            min_mz=float(config["min_mz"]),
+            max_mz=float(config["max_mz"]),
+            min_intensity=float(config["min_intensity"]),
+            remove_precursor_tol=float(config["remove_precursor_tol"]),
+            random_state=3407,
         )
-
-    truths = []
-    ordered_predictions = []
-    for position in range(total_spectra):
-        _spectrum, _mz, _charge, truth = dataset[position]
-        truth_tokens = tokens(truth)
-        if any(token not in config["residues"] for token in truth_tokens):
-            raise ValueError(
-                f"Truth token missing from configured residue masses at index {position}."
+        predictions: list[str] = []
+        with Path(predictions_path).open(encoding="utf-8", newline="") as handle:
+            for row in csv.DictReader(handle, delimiter="\t"):
+                sequence = row.get("Sequence", row.get("peptide"))
+                if sequence is None:
+                    raise ValueError("Prediction TSV must contain a Sequence column.")
+                predictions.append(sequence)
+        total_spectra = len(dataset)
+        if len(predictions) != total_spectra:
+            raise RuntimeError(
+                f"Prediction count mismatch: {len(predictions)} vs {total_spectra}. "
+                "Peptide recall must use every input spectrum as its denominator."
             )
-        if not truth_tokens:
-            raise ValueError(
-                "Evaluation requires an annotated MGF with a non-empty SEQ= "
-                f"value for every spectrum; missing at index {position}."
-            )
-        truths.append(truth_tokens)
-        ordered_predictions.append(predictions[position])
-    index.env.close()
 
-    matches, n_aa_true, n_aa_pred = aa_match_batch(
-        truths,
-        ordered_predictions,
-        config["residues"],
-        mode="best",
-    )
-    aa_precision, aa_recall, _ = aa_match_metrics(
-        matches,
-        n_aa_true,
-        n_aa_pred,
-    )
-    peptide_correct = int(sum(bool(row[1]) for row in matches))
-    peptide_recall = peptide_correct / max(total_spectra, 1)
-    result = {
-        "spectra": total_spectra,
-        "peptide_recall_denominator_count": total_spectra,
-        "n_aa_true": int(n_aa_true),
-        "n_aa_pred": int(n_aa_pred),
-        "n_aa_correct": int(sum(row[0].sum() for row in matches)),
-        "peptide_correct": peptide_correct,
-        "aa_precision": float(aa_precision),
-        "aa_recall": float(aa_recall),
-        "peptide_recall": float(peptide_recall),
-        "peptide_recall_denominator": "all_input_spectra",
-        "aa_match_mode": "best",
-        "metric_implementation": (
-            "MNovo.denovo.evaluate.aa_match_batch + aa_match_metrics"
-        ),
-    }
-    output = Path(output_path)
-    output.parent.mkdir(parents=True, exist_ok=True)
-    output.write_text(
-        json.dumps(result, indent=2, sort_keys=True) + "\n",
-        encoding="utf-8",
-    )
-    return result
+        truths = [index[position][-1] for position in range(total_spectra)]
+        counts = match_counts(truths, predictions, config["residues"])
+        n_aa_correct, n_aa_true, n_aa_pred, peptide_correct, total_spectra = counts
+        metrics = {name: count_ratio(numerator, denominator)
+                   for name, numerator, denominator in metric_components(counts)}
+        aa_precision = metrics["aa_precision"]
+        aa_recall = metrics["aa_recall"]
+        peptide_recall = metrics["pep_recall"]
+        result = {
+            "status": "complete" if total_spectra else "no_evaluable_spectra",
+            "spectra": total_spectra,
+            "peptide_recall_denominator_count": total_spectra,
+            "n_aa_true": int(n_aa_true),
+            "n_aa_pred": int(n_aa_pred),
+            "n_aa_correct": int(n_aa_correct),
+            "peptide_correct": peptide_correct,
+            "aa_precision": float(aa_precision) if total_spectra else None,
+            "aa_recall": float(aa_recall) if total_spectra else None,
+            "peptide_recall": float(peptide_recall) if total_spectra else None,
+            "aa_match_mode": "best",
+            "metric_implementation": (
+                "MNovo.denovo.metric_counts.match_counts + metric_components + count_ratio"
+            ),
+        }
+        return result
+    finally:
+        index.env.close()

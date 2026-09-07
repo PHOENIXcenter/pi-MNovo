@@ -41,6 +41,23 @@ def match_counts(truths, predictions, masses):
     )
 
 
+def metric_components(counts):
+    """One definition of each sequence metric's numerator and denominator."""
+    correct_aa, true_aa, pred_aa, correct_peptides, spectra = counts
+    return (
+        ("aa_precision", correct_aa, pred_aa),
+        ("aa_recall", correct_aa, true_aa),
+        ("pep_recall", correct_peptides, spectra),
+    )
+
+
+def count_ratio(numerator, denominator):
+    """Identical scalar and distributed-tensor division, without epsilon bias."""
+    if isinstance(denominator, torch.Tensor):
+        return numerator.double() / denominator.clamp_min(1)
+    return numerator / max(denominator, 1)
+
+
 class CountRatio(Metric):
     """Sum counts across batches/ranks before dividing, including a short tail."""
 
@@ -62,4 +79,4 @@ class CountRatio(Metric):
         self.denominator += int(denominator)
 
     def compute(self):
-        return self.numerator.double() / self.denominator.clamp_min(1)
+        return count_ratio(self.numerator, self.denominator)

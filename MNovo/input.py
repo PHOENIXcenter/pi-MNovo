@@ -98,11 +98,20 @@ def materialize_mgf_lmdb(
     max_charge: int,
     annotated: bool = False,
     audit=None,
+    preprocessing_config=None,
 ) -> int:
     """Write resolved MGF spectra to a temporary inference LMDB."""
     from MNovo.denovo.spectrum_index import LmdbSpectrumIndex
     from MNovo.denovo.spectrum_parsers import MgfParser
     from MNovo.input_audit import spectra
+    from MNovo.denovo.spectrum_dataset import SpectrumDataset
+
+    config = preprocessing_config or {}
+    preprocessor = SpectrumDataset([], **{
+        key: config[key] for key in (
+            "n_peaks", "min_mz", "max_mz", "min_intensity", "remove_precursor_tol"
+        ) if key in config
+    })
 
     database = LmdbSpectrumIndex(
         str(lmdb),
@@ -116,7 +125,7 @@ def materialize_mgf_lmdb(
         for path in sources:
             parser = MgfParser(path, valid_charge=np.arange(1, max_charge + 1),
                                annotationsLabel=annotated)
-            for spectrum in spectra(path, max_charge, audit, len(database)):
+            for spectrum in spectra(path, max_charge, audit, len(database), preprocessor):
                 parser.parse_spectrum(spectrum)
             database.write_spectra(parser, len(parser.precursor_charge))
         count = len(database)

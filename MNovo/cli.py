@@ -23,7 +23,7 @@ from MNovo.input import (
     materialize_mgf_lmdb,
     resolve_mgf_inputs,
 )
-from MNovo.evaluation import evaluate_predictions
+from MNovo.evaluation import evaluate_predictions, write_metrics_state
 from MNovo.release import resolve_model_release
 from MNovo.runtime import MNovoRuntime, RuntimeOptions
 from MNovo.selection import validate_selection
@@ -405,12 +405,18 @@ def run(
 
 def main() -> None:
     parsed = parse_args()
+    metrics_output = parsed.metrics_output or str(Path(parsed.output).with_suffix(".metrics.json"))
     if parsed.max_samples < 0:
         raise ValueError("--max-samples must be non-negative.")
     if parsed.task == "eval" and (parsed.indices or parsed.max_samples):
         raise ValueError(
             "eval requires all input spectra; subset parameters are unsupported."
         )
+    if parsed.task == "eval":
+        if Path(metrics_output).resolve() == Path(parsed.output).resolve():
+            raise ValueError("Metrics and prediction outputs must be different files.")
+        write_metrics_state(metrics_output, dict(status="in_progress", peptide_recall=None,
+                                                 aa_precision=None, aa_recall=None))
     if parsed.task != "train":
         parsed.model_dir = str(resolve_model_release(parsed.model_dir))
     config_was_explicit = parsed.config is not None
@@ -477,6 +483,7 @@ def main() -> None:
                         max_charge=args.max_charge,
                         annotated=args.task == "eval",
                         audit=audit,
+                        preprocessing_config=yaml.safe_load(Path(args.config).read_text(encoding="utf-8")),
                     )
                 print(
                     json.dumps(
@@ -502,6 +509,9 @@ def main() -> None:
         except Exception:
             if audit:
                 audit.save("prediction_failed")
+            if args.task == "eval":
+                write_metrics_state(metrics_output, dict(status="prediction_failed", peptide_recall=None,
+                                                         aa_precision=None, aa_recall=None))
             raise
         if audit:
             not_selected = total_spectra - predicted
@@ -510,15 +520,14 @@ def main() -> None:
                 status = "no_predictions"
             result = audit.save(status, predicted, not_selected)
             print(json.dumps({"input_accounting": result}, ensure_ascii=False, indent=2))
-        if args.task == "eval" and predicted:
-            metrics_output = args.metrics_output or str(
-                Path(args.output).with_suffix(".metrics.json")
-            )
+        if args.task == "eval":
             result = evaluate_predictions(
                 args.output,
                 lmdb,
                 args.config,
                 metrics_output,
+                input_counts=dict(original_input=audit.total, accepted=audit.accepted,
+                                  rejected=audit.rejected) if audit else None,
             )
             print(json.dumps({"evaluation": result}, indent=2, sort_keys=True))
 

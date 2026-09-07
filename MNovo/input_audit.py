@@ -97,7 +97,7 @@ class InputAudit:
         self.save("parse_failed" if typ else "parsed")
 
 
-def spectra(path, max_charge, audit=None, start_index=0):
+def spectra(path, max_charge, audit=None, start_index=0, preprocessor=None):
     """Validate independently so one bad MGF block never hides its neighbours."""
     accepted = start_index
     for number, header, block, complete in blocks(path):
@@ -145,6 +145,16 @@ def spectra(path, max_charge, audit=None, start_index=0):
                 reject("MGF", f"parseable peaks, PEPMASS > 0, one CHARGE in 1..{max_charge}",
                        f"CHARGE={params.get('CHARGE')}; PEPMASS={params.get('PEPMASS')}",
                        f"{type(error).__name__}: {error}")
+        if not row["reason"] and preprocessor is not None:
+            from MNovo.denovo.spectrum_dataset import InvalidSpectrum
+            try:
+                preprocessor._process_peaks(
+                    spectrum["m/z array"], spectrum["intensity array"],
+                    float(spectrum["params"]["pepmass"][0]),
+                    int(spectrum["params"]["charge"][0]), strict=True,
+                )
+            except InvalidSpectrum as error:
+                reject("preprocessing", error.supported, error.observed, str(error))
         if not row["reason"]:
             row.update(status="accepted", dataset_index=accepted)
             spectrum["params"]["title"] = row["TITLE"]

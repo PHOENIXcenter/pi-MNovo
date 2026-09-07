@@ -12,6 +12,15 @@ from .spectrum_index import LmdbSpectrumIndex
 LOGGER = logging.getLogger(__name__)
 
 
+class InvalidSpectrum(ValueError):
+    """A spectrum cannot supply usable model input after preprocessing."""
+
+    def __init__(self, reason, supported, observed):
+        super().__init__(reason)
+        self.supported = supported
+        self.observed = observed
+
+
 def cumsum(it):
     total = 0
     for x in it:
@@ -71,6 +80,7 @@ class SpectrumDataset(Dataset):
         int_array: np.ndarray,
         precursor_mz: float,
         precursor_charge: int,
+        strict: bool = False,
     ) -> torch.Tensor:
         """
         Preprocess the spectrum by removing noise peaks and scaling the peak
@@ -92,6 +102,23 @@ class SpectrumDataset(Dataset):
         torch.Tensor of shape (n_peaks, 2)
             A tensor of the spectrum with the m/z and intensity peak values.
         """
+        supported = (
+            f"at least 1 usable peak; m/z {self.min_mz}..{self.max_mz}; "
+            f"nonnegative finite float32 intensity with positive maximum; "
+            f"relative intensity >= {self.min_intensity}; "
+            f"precursor exclusion {self.remove_precursor_tol} Da; top {self.n_peaks} peaks"
+        )
+        observed = (
+            f"raw_peaks={len(mz_array)}; "
+            f"mz_min={float(np.min(mz_array)) if len(mz_array) else None}; "
+            f"mz_max={float(np.max(mz_array)) if len(mz_array) else None}; "
+            f"intensity_min={float(np.min(int_array)) if len(int_array) else None}; "
+            f"intensity_max={float(np.max(int_array)) if len(int_array) else None}"
+        )
+        if strict and (not len(int_array) or not np.isfinite(int_array).all()
+                       or np.any(int_array < 0) or np.max(int_array) <= 0
+                       or np.max(int_array) > np.finfo(np.float32).max):
+            raise InvalidSpectrum("Invalid peak intensities", supported, observed)
         spectrum = sus.MsmsSpectrum(
             "",
             precursor_mz,
@@ -99,20 +126,32 @@ class SpectrumDataset(Dataset):
             mz_array.astype(np.float64),
             int_array.astype(np.float32),
         )
+        stage = "m/z range filtering"
         try:
             spectrum.set_mz_range(self.min_mz, self.max_mz)
             if len(spectrum.mz) == 0:
                 raise ValueError
+            stage = "precursor peak removal"
             spectrum.remove_precursor_peak(self.remove_precursor_tol, "Da")
             if len(spectrum.mz) == 0:
                 raise ValueError
+            stage = "intensity filtering"
             spectrum.filter_intensity(self.min_intensity, self.n_peaks)
             if len(spectrum.mz) == 0:
                 raise ValueError
             spectrum.scale_intensity("root", 1)
             intensities = spectrum.intensity / np.linalg.norm(spectrum.intensity)
+            if strict and not np.isfinite(intensities).all():
+                raise InvalidSpectrum("Nonfinite normalized intensities", supported, observed)
             return torch.tensor(np.array([spectrum.mz, intensities])).T.float()
-        except ValueError:
+        except InvalidSpectrum:
+            raise
+        except ValueError as error:
+            if strict:
+                raise InvalidSpectrum(
+                    f"No usable peaks after {stage}", supported,
+                    observed + f"; usable_peaks={len(spectrum.mz)}",
+                ) from error
             # Replace invalid spectra by a dummy spectrum.
             return torch.tensor([[0, 1]]).float()
 

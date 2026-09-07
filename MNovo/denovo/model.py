@@ -14,7 +14,7 @@ from torch.utils.tensorboard import SummaryWriter
 from . import mass_con
 from ..components import ModelMixin, PeptideDecoder, SpectrumEncoder
 from .ctc_beam_search import CTCBeamSearchDecoder
-from .metric_counts import CountRatio, match_counts
+from .metric_counts import CountRatio, match_counts, metric_components
 from MNovo.ctc import validate_targets
 
 AA_MASSES = {
@@ -487,14 +487,8 @@ class Spec2Pep(pl.LightningModule, ModelMixin):
         return loss
 
     def _record_matches(self, stage, truths, predictions):
-        correct_aa, true_aa, pred_aa, correct_peptides, spectra = match_counts(
-            truths, predictions, self.decoder._peptide_mass.masses
-        )
-        for name, numerator, denominator in (
-            ("aa_precision", correct_aa, pred_aa),
-            ("aa_recall", correct_aa, true_aa),
-            ("pep_recall", correct_peptides, spectra),
-        ):
+        counts = match_counts(truths, predictions, self.decoder._peptide_mass.masses)
+        for name, numerator, denominator in metric_components(counts):
             metric = self.sequence_metrics[f"{stage}_{name}"]
             metric.update(numerator, denominator)
             self.log(

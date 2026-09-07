@@ -126,6 +126,12 @@ inference; the prediction TSV records prediction outcomes. Parsing or prediction
 failures are not marked as successfully reconciled. These records describe MGF
 ingestion; pre-existing LMDB inputs do not reconstruct the original MGF provenance.
 
+MGF acceptance also checks the checkpoint's actual peak preprocessing settings.
+Zero/negative intensities, invalid normalized peaks, and spectra with no peaks
+remaining after m/z, precursor or intensity filtering are rejected with the
+filter stage, configured limits and observed peak/intensity values. Other spectra
+continue normally; rejected inputs are not replaced with dummy peaks for MGF inference.
+
 The output columns are:
 
 ```text
@@ -151,7 +157,20 @@ pi-mnovo \
   --metrics-output metrics.json
 ```
 
-The reported peptide recall uses all parsed spectra as the denominator.
+Peptide recall uses all accepted spectra as its denominator, including empty
+predictions. Metrics explicitly report `original_input`, `accepted`, `rejected`,
+`evaluable_spectra`, and `peptide_recall_denominator=accepted_input_spectra`.
+Pre-existing LMDB input is labelled `provided_lmdb_spectra`, with unknown original
+MGF and rejection counts set to null. Every evaluation replaces prior metric
+state; all-rejected input writes `no_evaluable_spectra` and null recall/precision,
+not old values or a misleading zero. Evaluation failures write `evaluation_failed`.
+
+Backbone validation and CLI evaluation share the same truth-first integer counters
+and ratio definitions in `MNovo.denovo.metric_counts`. Empty or unsupported
+predictions count as failed predictions, not excluded spectra. Invalid references
+are errors. Counts are summed before division, including short final batches.
+The legacy `aa_match_metrics` and unused threshold metric function have been removed;
+the mass-based sequence matching algorithm remains shared and unchanged.
 
 ## Backbone training
 
