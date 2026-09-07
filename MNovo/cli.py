@@ -27,8 +27,13 @@ from MNovo.evaluation import evaluate_predictions
 from MNovo.release import resolve_model_release
 from MNovo.runtime import MNovoRuntime, RuntimeOptions
 from MNovo.selection import validate_selection
+from MNovo.input_audit import InputAudit
 
 DEFAULT_RELEASE = Path("models/pi-MNovo-v0.1.0.ckpt")
+OUTPUT_HEADER = (
+    "TITLE\tScan_No\tExp.MH+\tCharge\tSequence\tCalc.MH+\t"
+    "Mass_Shift(Exp.-Calc.)\tScore\tModification\tStatus\tRoute\tdataset_index\n"
+)
 
 PROTON_MASS = 1.007276466621
 WATER_MASS = 18.0105646837
@@ -256,7 +261,7 @@ def run(
     lmdb: str,
     input_files: list[Path],
     total_spectra: int,
-) -> None:
+) -> int:
     indices = validate_selection(
         np.load(args.indices, allow_pickle=False) if args.indices else None,
         total_spectra,
@@ -264,6 +269,14 @@ def run(
         args.task,
     )
     progress_total = len(indices) if indices is not None else total_spectra
+    if progress_total == 0:
+        output = Path(args.output)
+        output.parent.mkdir(parents=True, exist_ok=True)
+        temporary = output.with_suffix(output.suffix + ".tmp")
+        temporary.write_text(OUTPUT_HEADER, encoding="utf-8")
+        temporary.replace(output)
+        print(json.dumps({"status": "no_accepted_spectra", "processed": 0}))
+        return 0
     options = RuntimeOptions(
         mode=args.mode,
         candidate_mode=args.candidate_mode,
@@ -282,10 +295,7 @@ def run(
         temporary.open("w", encoding="utf-8") as handle,
         LmdbTitleLookup(lmdb) as titles,
     ):
-        handle.write(
-            "TITLE\tScan_No\tExp.MH+\tCharge\tSequence\tCalc.MH+\t"
-            "Mass_Shift(Exp.-Calc.)\tScore\tModification\tStatus\tRoute\tdataset_index\n"
-        )
+        handle.write(OUTPUT_HEADER)
         with tqdm(
             total=progress_total,
             desc="MNovo",
@@ -390,6 +400,9 @@ def run(
     )
 
 
+    return count
+
+
 def main() -> None:
     parsed = parse_args()
     if parsed.max_samples < 0:
@@ -429,6 +442,7 @@ def main() -> None:
         subprocess.run(command, check=True)
         return
 
+    audit = None
     if args.lmdb:
         lmdb_path = str(Path(args.lmdb).expanduser())
         context = nullcontext((lmdb_path, [], lmdb_spectra_count(lmdb_path)))
@@ -453,13 +467,17 @@ def main() -> None:
 
         class MgfContext:
             def __enter__(self):
+                nonlocal audit
                 lmdb = Path(temporary.name) / "input.lmdb"
-                count = materialize_mgf_lmdb(
-                    sources,
-                    lmdb,
-                    max_charge=args.max_charge,
-                    annotated=args.task == "eval",
-                )
+                audit = InputAudit(args.output)
+                with audit:
+                    count = materialize_mgf_lmdb(
+                        sources,
+                        lmdb,
+                        max_charge=args.max_charge,
+                        annotated=args.task == "eval",
+                        audit=audit,
+                    )
                 print(
                     json.dumps(
                         {
@@ -479,8 +497,20 @@ def main() -> None:
 
         context = MgfContext()
     with context as (lmdb, input_files, total_spectra):
-        run(args, lmdb, input_files, total_spectra)
-        if args.task == "eval":
+        try:
+            predicted = run(args, lmdb, input_files, total_spectra)
+        except Exception:
+            if audit:
+                audit.save("prediction_failed")
+            raise
+        if audit:
+            not_selected = total_spectra - predicted
+            status = "complete_with_rejections" if audit.rejected else "complete"
+            if not predicted:
+                status = "no_predictions"
+            result = audit.save(status, predicted, not_selected)
+            print(json.dumps({"input_accounting": result}, ensure_ascii=False, indent=2))
+        if args.task == "eval" and predicted:
             metrics_output = args.metrics_output or str(
                 Path(args.output).with_suffix(".metrics.json")
             )

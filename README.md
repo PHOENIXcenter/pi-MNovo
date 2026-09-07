@@ -109,6 +109,23 @@ pi-mnovo --model denovo --input ./mgf --output predictions.tsv
 pi-mnovo --model denovo --input './mgf/**/*.mgf' --output predictions.tsv
 ```
 
+MGF inputs are checked spectrum by spectrum. Invalid spectra are skipped while
+valid spectra continue. Alongside `predictions.tsv`, the command writes:
+
+- `predictions.input-audit.tsv`: every spectrum's source file, one-based position
+  within that file, TITLE, accepted/rejected status, and accepted `dataset_index`.
+- `predictions.rejected.tsv`: rejected spectra with the field, supported values,
+  actual input, and specific reason (for example, supported charge `1..10`, input `11+`).
+- `predictions.input-summary.json`: original, accepted, predicted and rejected counts.
+
+For a full-input run the final check is `original = predictions + rejected`.
+Explicit subset runs additionally report `not_selected`; these are not invalid spectra.
+All-rejected input produces a header-only prediction file and a zero-prediction
+summary without loading the model. The audit status `accepted` means accepted for
+inference; the prediction TSV records prediction outcomes. Parsing or prediction
+failures are not marked as successfully reconciled. These records describe MGF
+ingestion; pre-existing LMDB inputs do not reconstruct the original MGF provenance.
+
 The output columns are:
 
 ```text
