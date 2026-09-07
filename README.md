@@ -33,6 +33,9 @@ The selected peptide is reported with a calibrated `Score` between 0 and 1.
 
 ## System requirements
 
+**An NVIDIA GPU is required to run pi-MNovo prediction and training. CPU-only
+execution is not supported for the complete program.**
+
 - Linux x86-64 with glibc 2.34 or newer
 - NVIDIA GPU supporting BF16, with a CUDA 12 compatible driver
 - Conda or Mamba
@@ -92,10 +95,8 @@ pi-mnovo \
   --output predictions.tsv
 ```
 
-CUDA is selected automatically. Production inference requires an NVIDIA GPU.
-Union inference fails before loading weights if CUDA is unavailable.
-For a diagnostic Beam5-only run, explicitly pass `--device cpu --candidate-mode beam-only`;
-this changes the candidate algorithm and must not be compared as the frozen union system.
+CUDA is selected automatically. Prediction requires an NVIDIA GPU.
+The default inference pipeline fails before loading weights if CUDA is unavailable.
 The ctcdecode extension is required. PMC errors abort union inference.
 TSV output includes `Status`, `Route`, and `dataset_index`; an empty pool reports
 `no_valid_candidate`, route `none`, and Score 0 without ranking or calibration.
@@ -231,8 +232,8 @@ explicit eligible loss subset before fitting. Final recall includes every accept
 
 The supported full installation is **source checkout (or sdist) + environment.yml on Linux
 Python 3.10**, including the bundled native decoder. A standalone `pip install` of the
-Python wheel does not install a complete sequencing environment. CPU invariant tests can
-run without CuPy or ctcdecode; that is not an end-to-end inference certification.
+Python wheel does not install a complete sequencing environment. An NVIDIA GPU
+meeting the system requirements above is required for prediction and training.
 
 External inference `--config` files may override `runtime` controls only; frozen model,
 preprocessing and residue fields must match the checkpoint. Singleton candidate pools

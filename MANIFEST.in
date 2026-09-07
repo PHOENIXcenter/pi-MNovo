@@ -3,4 +3,3 @@ recursive-include scripts *.py
 recursive-include docs *.md *.json
 recursive-include tests *.py *.mgf
 recursive-include wheels *.whl
-recursive-include .github/workflows *.yml
