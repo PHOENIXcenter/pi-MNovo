@@ -197,7 +197,6 @@ Python 3.10**, including the bundled native decoder. A standalone `pip install` 
 Python wheel does not install a complete sequencing environment. CPU invariant tests can
 run without CuPy or ctcdecode; that is not an end-to-end inference certification.
 
-Second audit corrections are recorded in [SECOND_AUDIT_20260907.md](docs/SECOND_AUDIT_20260907.md).
 External inference `--config` files may override `runtime` controls only; frozen model,
 preprocessing and residue fields must match the checkpoint. Singleton candidate pools
 retain R1 without invoking the router. Prediction streams must match the requested
