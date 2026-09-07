@@ -205,6 +205,25 @@ def apply_config(args: argparse.Namespace) -> argparse.Namespace:
     if not config_path.is_file():
         raise FileNotFoundError(f"Inference config not found: {config_path}")
     config = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
+    if args.config and getattr(args, "task", "denovo") != "train":
+        frozen_path = model_dir / "config" / "inference.yaml"
+        frozen = yaml.safe_load(frozen_path.read_text(encoding="utf-8"))
+        changed = [
+            key
+            for key, value in config.items()
+            if key != "runtime" and (key not in frozen or value != frozen[key])
+        ]
+        if changed:
+            raise ValueError(
+                f"Cannot override frozen inference fields: {sorted(changed)}"
+            )
+        # Every stage must use the same preprocessing and mass schema. Only
+        # operational controls may be overridden by an external inference YAML.
+        overrides = config.get("runtime", {})
+        if not isinstance(overrides, dict):
+            raise TypeError(f"'runtime' must be a mapping in {config_path}")
+        config = dict(frozen, runtime={**frozen.get("runtime", {}), **overrides})
+        config_path = frozen_path
     runtime = config.get("runtime", {})
     if not isinstance(runtime, dict):
         raise TypeError(f"'runtime' must be a mapping in {config_path}")
@@ -275,6 +294,16 @@ def run(
             disable=not sys.stderr.isatty(),
         ) as progress:
             for prediction in runtime.predict_lmdb(lmdb, indices):
+                if count >= progress_total:
+                    raise RuntimeError(
+                        "Prediction count mismatch: too many output rows."
+                    )
+                expected_index = int(indices[count]) if indices is not None else count
+                if prediction.dataset_index != expected_index:
+                    raise RuntimeError(
+                        f"Prediction index mismatch at row {count}: "
+                        f"{prediction.dataset_index} vs {expected_index}."
+                    )
                 count += 1
                 route_counts[prediction.route] += 1
                 record = titles.spectrum(prediction.dataset_index)
@@ -322,6 +351,8 @@ def run(
                         ),
                         flush=True,
                     )
+    if count != progress_total:
+        raise RuntimeError(f"Prediction count mismatch: {count} vs {progress_total}.")
     temporary.replace(output)
     elapsed = max(time.time() - started, 1e-6)
     print(

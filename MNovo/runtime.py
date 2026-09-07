@@ -117,6 +117,8 @@ def _selected(
         if top.values.size(1) > 1
         else torch.full_like(top.values[:, 0], float("inf"))
     )
+    # A singleton has no runner-up. Never feed an infinite margin to the router.
+    margin = torch.where(mask.sum(dim=1) == 1, torch.zeros_like(margin), margin)
     return index, margin
 
 
@@ -519,10 +521,16 @@ class MNovoRuntime:
         normalized = (
             features - self.fast_router_checkpoint["feature_mean"].to(self.device)
         ) / self.fast_router_checkpoint["feature_std"].to(self.device)
-        logits = self.fast_router(normalized)
-        route, _probability, _advantage = apply_frozen_threshold(
-            logits, float(self.fast_router_checkpoint["frozen_threshold"])
-        )
+        route = torch.zeros(data["mask"].size(0), dtype=torch.long, device=self.device)
+        ambiguous = data["mask"].sum(dim=1) > 1
+        if ambiguous.any():
+            if not torch.isfinite(normalized[ambiguous]).all():
+                raise FloatingPointError("Non-finite observable-router features.")
+            logits = self.fast_router(normalized[ambiguous])
+            selected_routes, _probability, _advantage = apply_frozen_threshold(
+                logits, float(self.fast_router_checkpoint["frozen_threshold"])
+            )
+            route[ambiguous] = selected_routes
         path_index = torch.stack(indices, dim=1)
         selected = path_index[torch.arange(route.numel(), device=self.device), route]
         route_names = ["r1", "r2_long", "r3_fragment"]
@@ -641,7 +649,7 @@ class MNovoRuntime:
         if indices is None:
             indices = np.arange(len(dataset), dtype=np.int64)
         loader = DataLoader(
-            IndexedDataset(dataset, np.asarray(indices, dtype=np.int64)),
+            IndexedDataset(dataset, indices),
             batch_size=self.options.batch_size,
             shuffle=False,
             num_workers=self.options.n_workers,
