@@ -7,8 +7,10 @@ a conservative observable router in one inference entry point.
 
 ## Release status
 
-This repository contains the frozen manuscript implementation. The matching
-unified checkpoint is `pi-MNovo-v0.1.0.ckpt` with SHA256:
+This working tree contains the **unreleased 0.1.1.dev0 review corrections**.
+It is not a new frozen manuscript release and has not reproduced the historical GPU benchmark.
+See [review disposition](docs/CODE_REVIEW_20260907.md) for validation and open evidence.
+The unchanged historical unified checkpoint is `pi-MNovo-v0.1.0.ckpt` with SHA256:
 
 ```text
 1de589a887a7b7271aae794b90850ece6c3c68c6d085374d0b32e40ec18d617f
@@ -93,8 +95,12 @@ pi-mnovo \
 ```
 
 CUDA is selected automatically. Production inference requires an NVIDIA GPU.
-The diagnostic `--device cpu` option moves the neural network to CPU, but the
-PMC backend still requires CUDA and therefore does not provide CPU-only use.
+Union inference now fails before loading weights if CUDA is unavailable.
+For a diagnostic Beam5-only run, explicitly pass `--device cpu --candidate-mode beam-only`;
+this changes the candidate algorithm and must not be compared as the frozen union system.
+The ctcdecode extension is still required. PMC errors abort union inference.
+TSV output appends `Status`, `Route`, and `dataset_index`; an empty pool reports
+`no_valid_candidate`, route `none`, and Score 0 without ranking or calibration.
 
 Directory and glob examples:
 
@@ -168,3 +174,25 @@ python scripts/verify_release.py --checkpoint models/pi-MNovo-v0.1.0.ckpt
 
 The code is released under the MIT License. See `NOTICE` for upstream
 attribution and `CITATION.cff` for citation metadata.
+
+## Review correction utilities
+
+`python scripts/audit_training_labels.py --labels labels.tsv --output audit.json`
+audits explicit data roles, full CTC feasibility (including adjacent repeats),
+unsupported labels and canonical-key intersections. Input columns are `role` and
+`sequence`. This is an audit of supplied rows, not proof of historical exposure.
+
+`python scripts/audit_checkpoint_metadata.py --checkpoint MODEL --report audit.json`
+scans nested metadata. Add `--output NEW_CANDIDATE` to sanitize local paths and verify
+all component tensors; it never overwrites or promotes an existing asset.
+
+Training accepts only training and validation inputs. `--test-input`/`--peak_path_test`
+is deprecated and ignored; evaluate final test only after all selection decisions freeze.
+Unalignable training/validation loss targets now raise an error; audit and construct an
+explicit eligible loss subset before fitting. Final recall continues to include all spectra.
+`eval` rejects `--indices` and `--max-samples` rather than silently changing its denominator.
+
+The supported full installation remains **source checkout (or sdist) + environment.yml on Linux
+Python 3.10**, including the bundled native decoder. A standalone `pip install` of the
+Python wheel does not install a complete sequencing environment. CPU invariant tests can
+run without CuPy or ctcdecode; that is not an end-to-end inference certification.

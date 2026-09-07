@@ -1,6 +1,6 @@
 """A de novo peptide sequencing model."""
 
-import threading
+from concurrent.futures import ThreadPoolExecutor
 import logging
 import re
 import torch.nn.functional as F
@@ -14,7 +14,8 @@ from torch.utils.tensorboard import SummaryWriter
 from . import mass_con
 from ..components import ModelMixin, PeptideDecoder, SpectrumEncoder
 from .ctc_beam_search import CTCBeamSearchDecoder
-from . import evaluate
+from .metric_counts import CountRatio, match_counts
+from MNovo.ctc import validate_targets
 
 AA_MASSES = {
     "G": 57.021464,
@@ -217,10 +218,21 @@ class Spec2Pep(pl.LightningModule, ModelMixin):
             max_charge=max_charge,
             max_pep_len=max_length,
         )
+        if self.PMC_enable:
+            from MNovo.pmc_schema import validate_pmc_schema
+
+            validate_pmc_schema(self.decoder, max_length)
         self.n_layers = n_layers
         self.ctc_decoder = CTCBeamSearchDecoder(self.decoder, self.ctc_dic)
         self.ctcloss = torch.nn.CTCLoss(
-            blank=self.decoder.get_blank_idx(), zero_infinity=True
+            blank=self.decoder.get_blank_idx(), reduction="none", zero_infinity=False
+        )
+        self.sequence_metrics = torch.nn.ModuleDict(
+            {
+                f"{stage}_{name}": CountRatio()
+                for stage in ("train", "valid")
+                for name in ("aa_precision", "aa_recall", "pep_recall")
+            }
         )
         # Optimizer settings.
         self.warmup_iters = warmup_iters
@@ -308,18 +320,14 @@ class Spec2Pep(pl.LightningModule, ModelMixin):
                     temp = ctc_post_processing(temp)
                     top_tokens[i] = temp if temp else top_tokens_beam[i]
 
-        threads = []
         log_prob = F.log_softmax(output_logits, -1)
-        for i in range(batch_size):
-            t = threading.Thread(
-                target=worker,
-                args=(log_prob[[i], :, :], precursors[[i], 0], i),
-            )
-            threads.append(t)
-            t.start()
-
-        for t in threads:
-            t.join()
+        with ThreadPoolExecutor(max_workers=min(batch_size, 16)) as executor:
+            futures = [
+                executor.submit(worker, log_prob[[i]], precursors[[i], 0], i)
+                for i in range(batch_size)
+            ]
+            for future in futures:
+                future.result()  # Propagate PMC exceptions to the caller.
 
         return [self.decoder.detokenize_truth(t, True) for t in top_tokens], batchscores
 
@@ -400,33 +408,8 @@ class Spec2Pep(pl.LightningModule, ModelMixin):
             tokens_pred = self.decoder.detokenize(tokens_pred)
             peptides_pred.append(tokens_pred)
 
-        aa_precision, aa_recall, pep_recall = evaluate.aa_match_metrics(
-            *evaluate.aa_match_batch(
-                peptides_pred, peptides_true, self.decoder._peptide_mass.masses
-            )
-        )
-
-        if mode == "train":
-            log_args = dict(
-                on_step=True, on_epoch=True, sync_dist=True, add_dataloader_idx=False
-            )
-            self.log("train/aa_precision", aa_precision, **log_args)
-            self.log("train/aa_recall", aa_recall, **log_args)
-            self.log("train/pep_recall", pep_recall, **log_args)
-        if mode == "valid" and self.n_beams == 0:
-            log_args = dict(
-                on_step=False, on_epoch=True, sync_dist=True, add_dataloader_idx=False
-            )
-            self.log("valid/aa_precision", aa_precision, **log_args)
-            self.log("valid/aa_recall", aa_recall, **log_args)
-            self.log("valid/pep_recall", pep_recall, **log_args)
-        if mode == "test" and self.n_beams == 0:
-            log_args = dict(
-                on_step=False, on_epoch=True, sync_dist=True, add_dataloader_idx=False
-            )
-            self.log("test/aa_precision", aa_precision, **log_args)
-            self.log("test/aa_recall", aa_recall, **log_args)
-            self.log("test/pep_recall", pep_recall, **log_args)
+        if mode == "train" or self.n_beams == 0:
+            self._record_matches(mode, peptides_true, peptides_pred)
 
         if self.custom_ctc_loss:
             raise NotImplementedError("custom_ctc_loss is not supported.")
@@ -436,12 +419,20 @@ class Spec2Pep(pl.LightningModule, ModelMixin):
             fill_value=prediction.size(0),
         )
         target_lengths = (truth != self.decoder.get_pad_idx()).sum(axis=1)
+        validate_targets(
+            truth, target_lengths, prediction.size(0), self.decoder.get_blank_idx()
+        )
         loss = self.ctcloss(
             torch.nn.functional.log_softmax(prediction, dim=-1),
             truth,
             input_lengths,
             target_lengths,
         )
+
+        if not torch.isfinite(loss).all():
+            raise FloatingPointError("Non-finite CTC loss; refusing silent zero loss.")
+        # Preserve PyTorch's original mean convention for valid targets.
+        loss = (loss / target_lengths.to(loss.device).clamp_min(1)).mean()
 
         if mode == "train":
             self.log(
@@ -472,18 +463,19 @@ class Spec2Pep(pl.LightningModule, ModelMixin):
         torch.Tensor
             The loss of the validation step.
         """
-        if dataloader_idx == None:
-            dataloader_idx = 0
-        key = "valid" if dataloader_idx == 0 else "test"
-        # Record the loss.
-        loss = self.training_step(batch, mode=key)
+        if dataloader_idx not in (None, 0):
+            raise ValueError(
+                "fit accepts only validation; evaluate test after freezing."
+            )
+        loss = self.training_step(batch, mode="valid")
         self.log(
-            "valid/CELoss" if dataloader_idx == 0 else "test/CELoss",
+            "valid/CELoss",
             loss.detach(),
             on_step=False,
             on_epoch=True,
             sync_dist=True,
             add_dataloader_idx=False,
+            batch_size=len(batch[2]),
         )
 
         # Calculate and log amino acid and peptide match evaluation metrics from
@@ -491,28 +483,27 @@ class Spec2Pep(pl.LightningModule, ModelMixin):
 
         if self.n_beams > 0:
             peptides_pred_raw, inferscores = self.forward(batch[0], batch[1], batch[2])
-            # Predictions containing internal stop tokens are invalid.
-            peptides_pred, peptides_true = [], []
-            for peptide_pred, peptide_true in zip(peptides_pred_raw, batch[2]):
-                if len(peptide_pred) > 0:
-                    if peptide_pred[0] == "$":
-                        peptide_pred = peptide_pred[1:]  # Remove stop token.
-                    if "$" not in peptide_pred and len(peptide_pred) > 0:
-                        peptides_pred.append(peptide_pred)
-                        peptides_true.append(peptide_true)
-
-            aa_precision, aa_recall, pep_recall = evaluate.aa_match_metrics(
-                *evaluate.aa_match_batch(
-                    peptides_pred, peptides_true, self.decoder._peptide_mass.masses
-                )
-            )
-            log_args = dict(
-                on_step=True, on_epoch=True, sync_dist=True, add_dataloader_idx=False
-            )
-            self.log("{}/aa_precision".format(key), aa_precision, **log_args)
-            self.log("{}/aa_recall".format(key), aa_recall, **log_args)
-            self.log("{}/pep_recall".format(key), pep_recall, **log_args)
+            self._record_matches("valid", batch[2], peptides_pred_raw)
         return loss
+
+    def _record_matches(self, stage, truths, predictions):
+        correct_aa, true_aa, pred_aa, correct_peptides, spectra = match_counts(
+            truths, predictions, self.decoder._peptide_mass.masses
+        )
+        for name, numerator, denominator in (
+            ("aa_precision", correct_aa, pred_aa),
+            ("aa_recall", correct_aa, true_aa),
+            ("pep_recall", correct_peptides, spectra),
+        ):
+            metric = self.sequence_metrics[f"{stage}_{name}"]
+            metric.update(numerator, denominator)
+            self.log(
+                f"{stage}/{name}",
+                metric,
+                on_step=False,
+                on_epoch=True,
+                add_dataloader_idx=False,
+            )
 
     @staticmethod
     def _matches_any_prefix(name, prefixes):

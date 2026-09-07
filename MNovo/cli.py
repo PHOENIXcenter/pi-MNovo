@@ -26,6 +26,7 @@ from MNovo.input import (
 from MNovo.evaluation import evaluate_predictions
 from MNovo.release import resolve_model_release
 from MNovo.runtime import MNovoRuntime, RuntimeOptions
+from MNovo.selection import validate_selection
 
 DEFAULT_RELEASE = Path("models/pi-MNovo-v0.1.0.ckpt")
 
@@ -168,13 +169,21 @@ def parse_args() -> argparse.Namespace:
         ),
     )
     parser.add_argument("--max-samples", type=int, default=0)
-    parser.add_argument("--indices")
+    parser.add_argument(
+        "--indices", help="Unique 1-D integer .npy indices; unavailable for eval."
+    )
+    parser.add_argument(
+        "--candidate-mode",
+        choices=("union", "beam-only"),
+        default="union",
+        help="beam-only is diagnostic and changes the candidate algorithm.",
+    )
     parser.add_argument(
         "--metrics-output",
         help="Evaluation JSON path; defaults beside --output.",
     )
     parser.add_argument("--validation-input")
-    parser.add_argument("--test-input")
+    parser.add_argument("--test-input", help="Deprecated: ignored during training.")
     parser.add_argument(
         "--checkpoint",
         help="Optional .ckpt initialization/resume weight for --model train.",
@@ -229,17 +238,16 @@ def run(
     input_files: list[Path],
     total_spectra: int,
 ) -> None:
-    indices = np.load(args.indices) if args.indices else None
-    if indices is not None and args.max_samples > 0:
-        indices = indices[: args.max_samples]
-    elif indices is None and args.max_samples > 0:
-        indices = np.arange(
-            min(args.max_samples, total_spectra),
-            dtype=np.int64,
-        )
+    indices = validate_selection(
+        np.load(args.indices, allow_pickle=False) if args.indices else None,
+        total_spectra,
+        args.max_samples,
+        args.task,
+    )
     progress_total = len(indices) if indices is not None else total_spectra
     options = RuntimeOptions(
         mode=args.mode,
+        candidate_mode=args.candidate_mode,
         batch_size=args.batch_size,
         n_workers=args.n_workers,
         ctc_processes=args.ctc_processes,
@@ -249,7 +257,7 @@ def run(
     output.parent.mkdir(parents=True, exist_ok=True)
     started = time.time()
     count = 0
-    route_counts = {"r1": 0, "r2_long": 0, "r3_fragment": 0}
+    route_counts = {"r1": 0, "r2_long": 0, "r3_fragment": 0, "none": 0}
     temporary = output.with_suffix(output.suffix + ".tmp")
     with (
         temporary.open("w", encoding="utf-8") as handle,
@@ -257,7 +265,7 @@ def run(
     ):
         handle.write(
             "TITLE\tScan_No\tExp.MH+\tCharge\tSequence\tCalc.MH+\t"
-            "Mass_Shift(Exp.-Calc.)\tScore\tModification\n"
+            "Mass_Shift(Exp.-Calc.)\tScore\tModification\tStatus\tRoute\tdataset_index\n"
         )
         with tqdm(
             total=progress_total,
@@ -279,6 +287,11 @@ def run(
                             prediction.confidence,
                             runtime.config["residues"],
                         )
+                        + [
+                            prediction.status,
+                            prediction.route,
+                            str(prediction.dataset_index),
+                        ]
                     )
                     + "\n"
                 )
@@ -294,7 +307,10 @@ def run(
                                 "spectra_per_second": count / elapsed,
                                 "candidate_generation": {
                                     "beam_width": 5,
-                                    "pmc_mode": "union",
+                                    "pmc_mode": "union"
+                                    if args.candidate_mode == "union"
+                                    else "off",
+                                    "statistics": dict(runtime.candidate_statistics),
                                     "dynamic_expansion": False,
                                 },
                                 "route_fraction": {
@@ -311,14 +327,18 @@ def run(
     print(
         json.dumps(
             {
-                "status": "complete",
+                "status": "complete_with_no_valid_candidate"
+                if route_counts["none"]
+                else "complete",
+                "candidate_mode": args.candidate_mode,
                 "output": str(output.resolve()),
                 "processed": count,
                 "seconds": elapsed,
                 "spectra_per_second": count / elapsed,
                 "candidate_generation": {
                     "beam_width": 5,
-                    "pmc_mode": "union",
+                    "pmc_mode": "union" if args.candidate_mode == "union" else "off",
+                    "statistics": dict(runtime.candidate_statistics),
                     "dynamic_expansion": False,
                 },
                 "route_counts": route_counts,
@@ -341,6 +361,12 @@ def run(
 
 def main() -> None:
     parsed = parse_args()
+    if parsed.max_samples < 0:
+        raise ValueError("--max-samples must be non-negative.")
+    if parsed.task == "eval" and (parsed.indices or parsed.max_samples):
+        raise ValueError(
+            "eval requires all input spectra; subset parameters are unsupported."
+        )
     if parsed.task != "train":
         parsed.model_dir = str(resolve_model_release(parsed.model_dir))
     config_was_explicit = parsed.config is not None
@@ -350,10 +376,8 @@ def main() -> None:
             raise ValueError("--model train requires MGF input, not --lmdb.")
         if not config_was_explicit:
             raise ValueError("--model train requires an explicit training --config.")
-        if not args.validation_input or not args.test_input:
-            raise ValueError(
-                "--model train requires --validation-input and --test-input."
-            )
+        if not args.validation_input:
+            raise ValueError("--model train requires --validation-input.")
         command = [
             sys.executable,
             "-m",
@@ -364,8 +388,6 @@ def main() -> None:
             args.input,
             "--peak_path_val",
             args.validation_input,
-            "--peak_path_test",
-            args.test_input,
             "--config",
             args.config,
             "--output",

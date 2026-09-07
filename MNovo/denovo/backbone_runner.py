@@ -62,7 +62,7 @@ def _maybe_reuse_index(
 
 
 class MetricsCsvCallback(pl.callbacks.Callback):
-    """Append validation/test metrics to a local CSV file after each epoch."""
+    """Append validation metrics to a local CSV file after each epoch."""
 
     def __init__(self, path: str) -> None:
         super().__init__()
@@ -127,10 +127,6 @@ class MetricsCsvCallback(pl.callbacks.Callback):
             "valid_aa_precision": self._metric_value(metrics, "valid/aa_precision"),
             "valid_aa_recall": self._metric_value(metrics, "valid/aa_recall"),
             "valid_peptide_exact": self._metric_value(metrics, "valid/pep_recall"),
-            "test_CELoss": self._metric_value(metrics, "test/CELoss"),
-            "test_aa_precision": self._metric_value(metrics, "test/aa_precision"),
-            "test_aa_recall": self._metric_value(metrics, "test/aa_recall"),
-            "test_peptide_exact": self._metric_value(metrics, "test/pep_recall"),
         }
         write_header = not os.path.exists(self.path)
         with open(self.path, "a", encoding="utf-8", newline="") as handle:
@@ -160,7 +156,7 @@ def train(
     peak_path_val : str
         The path with peak files to be used as validation data.
     peak_path_test : str
-        The path with peak files to be used as testing data.
+        Deprecated; ignored during fit to preserve test isolation.
     model_filename : str
         The file name of the model weights (.ckpt file).
     config : Dict[str, Any]
@@ -190,18 +186,8 @@ def train(
         [os.path.splitext(fn)[1] in (".mgf", ".mzxml", ".mzml") for fn in val_filenames]
     )
 
-    if (
-        peak_path_test is None
-        or len(test_filenames := _get_peak_filenames(peak_path_test, ext)) == 0
-    ):
-        logger.error("Could not find testing peak files from %s", peak_path_test)
-        raise FileNotFoundError("Could not find testing peak files")
-    test_is_not_index = any(
-        [
-            os.path.splitext(fn)[1] in (".mgf", ".mzxml", ".mzml")
-            for fn in test_filenames
-        ]
-    )
+    if peak_path_test:
+        logger.warning("Test input is ignored during fit; run independent evaluation after freezing.")
 
     class MyDirectory:
         def __init__(self, sdir=None):
@@ -236,15 +222,6 @@ def train(
     else:
         val_index_path = val_filenames
         val_filenames = None
-    if test_is_not_index:
-        test_index_path = [
-            _stable_index_path(tmp_dir.name, "test", test_filenames, config, True)
-        ]
-        test_filenames = _maybe_reuse_index(test_index_path[0], test_filenames)
-    else:
-        test_index_path = test_filenames
-        test_filenames = None
-
     valid_charge = np.arange(1, config["max_charge"] + 1)
     dataloader_params = dict(
         batch_size=config["train_batch_size"],
@@ -256,10 +233,10 @@ def train(
         n_workers=config["n_workers"],
         train_filenames=train_filenames,
         val_filenames=val_filenames,
-        test_filenames=test_filenames,
+        test_filenames=None,
         train_index_path=train_index_path,
         val_index_path=val_index_path,
-        test_index_path=test_index_path,
+        test_index_path=[],
         annotated=True,
         valid_charge=valid_charge,
         mode="fit",
@@ -333,7 +310,7 @@ def train(
             raise FileNotFoundError(
                 "Could not find the model weights to continue training"
             )
-        model = Spec2Pep().load_from_checkpoint(model_filename, **model_params)
+        model = Spec2Pep.load_from_checkpoint(model_filename, **model_params)
     # Create the Trainer object and (optionally) a checkpoint callback to
     # periodically save the model.
     if config["save_model"]:

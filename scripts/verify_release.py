@@ -41,16 +41,7 @@ def main() -> None:
             f"Checkpoint SHA256 mismatch: expected {EXPECTED_SHA256}, got {observed}"
         )
     with tempfile.TemporaryDirectory(prefix="pi_mnovo_verify_") as cache:
-        previous_home = os.environ.get("HOME")
-        os.environ["HOME"] = cache
-        try:
-            # Extraction verifies the hash of every embedded component.
-            root = resolve_model_release(checkpoint)
-        finally:
-            if previous_home is None:
-                os.environ.pop("HOME", None)
-            else:
-                os.environ["HOME"] = previous_home
+        root = resolve_model_release(checkpoint, cache_root=cache)
         config = yaml.safe_load(
             (root / "config" / "inference.yaml").read_text(encoding="utf-8")
         )

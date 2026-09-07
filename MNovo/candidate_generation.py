@@ -9,6 +9,7 @@ import torch
 
 from MNovo.denovo import mass_con
 from MNovo.denovo.model import Spec2Pep, ctc_post_processing
+from MNovo.ctc import required_steps
 
 LOGGER = logging.getLogger(__name__)
 
@@ -52,6 +53,7 @@ def pmc_candidates(
     precursors: torch.Tensor,
     top_tokens: list[list[int]],
     enabled: bool,
+    statistics: dict | None = None,
 ) -> list[list[int]]:
     """Generate one precise-mass-control proposal per eligible spectrum."""
     candidates: list[list[int]] = [[] for _ in top_tokens]
@@ -62,6 +64,8 @@ def pmc_candidates(
         predicted = sum(_token_mass(model, token) for token in ctc_tokens)
         if abs(target - predicted) < float(model.mass_control_tol):
             continue
+        if statistics is not None:
+            statistics["pmc_attempted"] += 1
         try:
             tokens = mass_con.knapDecode(
                 log_probs[idx : idx + 1],
@@ -71,8 +75,15 @@ def pmc_candidates(
             candidates[idx] = [
                 int(token) for token in ctc_post_processing(tokens) if int(token) >= 0
             ]
+            if statistics is not None and candidates[idx]:
+                statistics["pmc_generated"] += 1
         except (RuntimeError, ValueError) as error:
-            LOGGER.warning("PMC candidate failed at batch item %d: %s", idx, error)
+            if statistics is not None:
+                statistics["pmc_failed"] += 1
+            raise RuntimeError(
+                f"PMC candidate failed at batch item {idx}; union inference aborted. "
+                "Use explicit --candidate-mode beam-only for diagnostic inference."
+            ) from error
     return candidates
 
 
@@ -85,7 +96,9 @@ def ctc_nll_for_batch(
     valid = [
         idx
         for idx, tokens in enumerate(token_lists)
-        if tokens and len(tokens) <= int(log_probs.size(1))
+        if tokens
+        and required_steps(tokens) <= int(log_probs.size(1))
+        and int(model.decoder.get_blank_idx()) not in tokens
     ]
     output = [float("inf")] * len(token_lists)
     if not valid:
@@ -109,7 +122,7 @@ def ctc_nll_for_batch(
     loss = torch.nn.CTCLoss(
         blank=int(model.decoder.get_blank_idx()),
         reduction="none",
-        zero_infinity=True,
+        zero_infinity=False,
     )(
         log_probs[valid].transpose(0, 1).contiguous(),
         targets,

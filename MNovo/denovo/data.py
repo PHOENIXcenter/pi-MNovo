@@ -111,20 +111,6 @@ class DeNovoDataModule(pl.LightningDataModule):
 
             self.valid_dataset = make_dataset(self.valid_index, random_state=self.rng)
 
-            self.test_index = []
-            for each in self.test_index_path:
-                self.test_index.append(
-                    LmdbSpectrumIndex(
-                        each,
-                        None,
-                        self.ms_level,
-                        self.valid_charge,
-                        self.annotated,
-                        lock=False,
-                    )
-                )
-            self.test_dataset = make_dataset(self.test_index)
-
         elif stage == "test":
             make_dataset = functools.partial(
                 SpectrumDataset,
@@ -172,7 +158,7 @@ class DeNovoDataModule(pl.LightningDataModule):
         if self.valid_index is None and self.mode == "fit":
             for each in self.val_index_path:
                 build_or_reuse(each, self.val_filenames)
-        if self.test_index is None:
+        if self.test_index is None and self.mode != "fit":
             for each in self.test_index_path:
                 build_or_reuse(each, self.test_filenames)
 
@@ -204,11 +190,6 @@ class DeNovoDataModule(pl.LightningDataModule):
 
     def val_dataloader(self) -> torch.utils.data.DataLoader:
         """Get the validation DataLoader."""
-        if self.mode == "fit":
-            return [
-                self._make_loader(self.valid_dataset),
-                self._make_loader(self.test_dataset),
-            ]
         return self._make_loader(self.valid_dataset)
 
     def test_dataloader(self) -> torch.utils.data.DataLoader:

@@ -47,7 +47,7 @@ logger = logging.getLogger("MNovo")
 )
 @click.option(
     "--peak_path_test",
-    help="The file path with peak files to be used as testing data during training.",
+    help="Deprecated: ignored during training. Evaluate only after model freezing.",
 )
 @click.option(
     "--config",

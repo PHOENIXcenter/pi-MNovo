@@ -32,7 +32,27 @@ def tokens(sequence: str | None) -> list[str]:
         value = value.replace(old, new)
     value = re.sub(r"([A-Z])\[([+-][0-9.]+)\]", r"\1\2", value)
     value = value.replace("I", "L")
-    return TOKEN_RE.findall(value)
+    result = []
+    position = 0
+    for match in TOKEN_RE.finditer(value):
+        if match.start() != position:
+            raise ValueError(
+                f"Unsupported peptide content at offset {position}: {sequence!r}"
+            )
+        token = match.group()
+        if token[0] in "+-" and result:
+            raise ValueError(
+                f"N-terminal modification at an internal position: {sequence!r}"
+            )
+        result.append(token)
+        position = match.end()
+    if position != len(value):
+        raise ValueError(
+            f"Unsupported peptide content at offset {position}: {sequence!r}"
+        )
+    if result and not any(token[0].isalpha() for token in result):
+        raise ValueError(f"Peptide contains only a modification: {sequence!r}")
+    return result
 
 
 def evaluate_predictions(
@@ -70,7 +90,12 @@ def evaluate_predictions(
             sequence = row.get("Sequence", row.get("peptide"))
             if sequence is None:
                 raise ValueError("Prediction TSV must contain a Sequence column.")
-            predictions.append(tokens(sequence))
+            parsed = tokens(sequence)
+            if any(token not in config["residues"] for token in parsed):
+                raise ValueError(
+                    f"Prediction token missing from configured residue masses: {sequence!r}"
+                )
+            predictions.append(parsed)
     total_spectra = len(dataset)
     if len(predictions) != total_spectra:
         raise RuntimeError(
@@ -83,6 +108,10 @@ def evaluate_predictions(
     for position in range(total_spectra):
         _spectrum, _mz, _charge, truth = dataset[position]
         truth_tokens = tokens(truth)
+        if any(token not in config["residues"] for token in truth_tokens):
+            raise ValueError(
+                f"Truth token missing from configured residue masses at index {position}."
+            )
         if not truth_tokens:
             raise ValueError(
                 "Evaluation requires an annotated MGF with a non-empty SEQ= "

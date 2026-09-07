@@ -1,9 +1,13 @@
-import cupy as cp
+try:
+    import cupy as cp
+except ImportError:
+    cp = None
 import numpy as np
 import torch
 
-inference_kernel = cp.RawKernel(
-    r"""
+inference_kernel = (
+    cp.RawKernel(
+        r"""
 extern "C" __global__
 void inference(float* prob, int* ans, float* aa_mass, float* dp, float* dpMass ,int* lock,float premass,int length,float grid_size, float tol2) {
     const int AA_num = 28;
@@ -98,11 +102,20 @@ void inference(float* prob, int* ans, float* aa_mass, float* dp, float* dpMass ,
     return;
 }
 """,
-    "inference",
+        "inference",
+    )
+    if cp is not None
+    else None
 )
 
 
 def knapDecode(prob, preMass, tol):
+    if prob.ndim != 3 or tuple(prob.shape[1:]) != (40, 28):
+        raise ValueError("PMC requires logits of shape (batch, 40, 28).")
+    if cp is None:
+        raise RuntimeError(
+            "PMC requires CuPy and a working CUDA driver; install environment.yml."
+        )
     grid_size = 1
     AAmasses = [
         0.0,

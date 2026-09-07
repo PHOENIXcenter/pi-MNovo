@@ -1,4 +1,7 @@
-# Release test report
+# Historical release test report
+
+This describes the 2026-09-03 run, not the unreleased review-correction tree.
+See `REVIEW_VALIDATION_20260907.json` for checks actually run on the revision.
 
 Release: `pi-MNovo-v0.1.0`
 Test date: 2026-09-03
@@ -18,7 +21,7 @@ verified as relative to the active environment's PyTorch libraries.
 - Unified checkpoint SHA256: passed.
 - Embedded component hashes and required-component inventory: passed.
 - Backbone repackaging audit: all 286 state tensors were bitwise equal.
-- Private path and credential-pattern scan: no findings.
+- Historical private-path scan reported no findings, but its scope did not establish absence of nested checkpoint paths. This assertion is withdrawn pending the recursive audit in `CODE_REVIEW_20260907.md`.
 
 ## End-to-end smoke test
 

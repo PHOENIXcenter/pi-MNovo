@@ -6,7 +6,6 @@
 import logging
 
 import torch
-from ctcdecode import CTCBeamDecoder
 from torch import TensorType
 from .ctc_decoder_base import CTCDecoderBase
 from typing import Dict, List
@@ -20,6 +19,13 @@ class CTCBeamSearchDecoder(CTCDecoderBase):
     """
 
     def __init__(self, decoder, decoder_parameters: Dict) -> None:
+        try:
+            from ctcdecode import CTCBeamDecoder
+        except ImportError as error:
+            raise RuntimeError(
+                "ctcdecode is required for sequencing. Install the Linux Python 3.10 "
+                "source environment and bundled decoder wheel described in README."
+            ) from error
         super().__init__(decoder)
         self.attn_decoder = decoder
         beam_width = int(

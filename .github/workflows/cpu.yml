@@ -1,0 +1,33 @@
+name: CPU invariants
+on: [push, pull_request, workflow_dispatch]
+jobs:
+  cpu:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+          cache: pip
+      - name: Install source environment for CPU invariants
+        run: |
+          python -m pip install 'torch==2.5.1' 'torchvision==0.20.1' --index-url https://download.pytorch.org/whl/cpu
+          python -m pip install -r requirements-cpu-test.txt
+      - name: Check and test
+        run: |
+          python -m ruff check MNovo scripts tests
+          python -m pytest -q --junitxml=outputs/cpu-junit.xml
+          python -m build
+      - name: Save provenance and test artifacts
+        if: always()
+        run: |
+          mkdir -p outputs
+          git rev-parse HEAD > outputs/source-commit.txt
+          python -m pip freeze > outputs/environment.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: cpu-verification
+          path: |
+            outputs/
+            dist/

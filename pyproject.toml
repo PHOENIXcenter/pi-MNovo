@@ -1,14 +1,15 @@
 [build-system]
-requires = ["setuptools>=68", "wheel"]
+requires = ["setuptools>=77,<81", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "pi-mnovo"
-version = "0.1.0"
+version = "0.1.1.dev0"
 description = "Microbial-domain de novo peptide sequencing from tandem mass spectra"
 readme = "README.md"
 requires-python = ">=3.10,<3.11"
-license = {file = "LICENSE"}
+license = "MIT"
+license-files = ["LICENSE", "NOTICE"]
 authors = [{name = "Jingwen Ye"}]
 dependencies = [
   "setuptools<81",

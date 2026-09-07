@@ -60,6 +60,7 @@ from MNovo.candidate_generation import (
     pmc_candidates,
 )
 from MNovo.router_schema import ROUTER_FEATURE_NAMES
+from MNovo.selection import validate_selection
 
 
 @dataclass(frozen=True)
@@ -72,7 +73,7 @@ class RuntimeOptions:
     cutoff_top_n: int = 30
     precision: str = "bf16"
     length_alpha: float = 0.7
-    fragment_peak_count: int = 120
+    candidate_mode: str = "union"
 
 
 @dataclass
@@ -81,12 +82,13 @@ class Prediction:
     peptide: str
     confidence: float
     route: str
+    status: str = "complete"
 
 
 class IndexedDataset(torch.utils.data.Dataset):
     def __init__(self, dataset: SpectrumDataset, indices: np.ndarray) -> None:
         self.dataset = dataset
-        self.indices = indices
+        self.indices = validate_selection(indices, len(dataset))
 
     def __len__(self) -> int:
         return int(self.indices.size)
@@ -105,7 +107,9 @@ def collate_indexed(batch):
 def _selected(
     scores: torch.Tensor, mask: torch.Tensor
 ) -> tuple[torch.Tensor, torch.Tensor]:
-    masked = scores.masked_fill(~mask, -1e9)
+    if not mask.any(dim=1).all():
+        raise ValueError("Cannot rank an empty candidate pool.")
+    masked = scores.masked_fill(~mask, -float("inf"))
     top = masked.topk(k=min(2, masked.size(1)), dim=1)
     index = top.indices[:, 0]
     margin = (
@@ -136,6 +140,18 @@ class MNovoRuntime:
             raise ValueError("The release runtime supports only mode='fast'.")
         if self.options.initial_beam != 5:
             raise ValueError("The release runtime is frozen to beam width 5.")
+        if self.options.candidate_mode not in ("union", "beam-only"):
+            raise ValueError("candidate_mode must be union or beam-only.")
+        self.candidate_statistics = dict(
+            pmc_attempted=0,
+            pmc_generated=0,
+            pmc_duplicate=0,
+            pmc_failed=0,
+        )
+        if self.options.candidate_mode == "union" and not torch.cuda.is_available():
+            raise RuntimeError(
+                "PMC union requires CUDA. Use --candidate-mode beam-only for diagnostics."
+            )
         self.device = torch.device(
             "cuda"
             if device == "auto" and torch.cuda.is_available()
@@ -144,6 +160,8 @@ class MNovoRuntime:
         self.config = yaml.safe_load(
             (self.root / "config" / "inference.yaml").read_text(encoding="utf-8")
         )
+        if self.options.candidate_mode == "union" and not self.config["PMC_enable"]:
+            raise ValueError("Union mode requires PMC_enable=true.")
         args = SimpleNamespace(
             beam_size=self.options.initial_beam,
             cutoff_top_n=self.options.cutoff_top_n,
@@ -258,7 +276,8 @@ class MNovoRuntime:
             log_probs,
             precursors,
             top_tokens,
-            True,
+            self.options.candidate_mode == "union",
+            statistics=self.candidate_statistics,
         )
         nll = ctc_nll_for_batch(self.backbone, log_probs, candidates)
         return candidates, nll
@@ -303,19 +322,21 @@ class MNovoRuntime:
                 pmc[row_index],
                 pmc_nll[row_index],
                 len(candidates),
-                "union",
+                "union" if self.options.candidate_mode == "union" else "off",
             )
+            if pmc[row_index] and not _injected:
+                self.candidate_statistics["pmc_duplicate"] += 1
             unique_tokens, unique_nll, unique_sources = [], [], []
             seen = set()
             for tokens, nll, source in zip(candidates, nlls, sources):
                 key = tuple(tokens)
-                if not tokens or key in seen or not math.isfinite(nll):
+                if not self._symbols(tokens) or key in seen or not math.isfinite(nll):
                     continue
                 seen.add(key)
                 unique_tokens.append(tokens)
                 unique_nll.append(float(nll))
                 unique_sources.append(source)
-            texts = [self._peptide_text(tokens) for tokens in unique_tokens]
+            texts = ["".join(self._symbols(tokens)) for tokens in unique_tokens]
             lengths = [len(self._symbols(tokens)) for tokens in unique_tokens]
             output.append(
                 {
@@ -575,21 +596,28 @@ class MNovoRuntime:
                 log_probs,
                 precursors_device,
             )
-            data = self._tensorize(rows, precursors_device, memory[:, 0])
-            selected, confidence, routes = self._observable_select(data, spectra)
-
-        output = []
-        for row_index, candidate_index in enumerate(selected.cpu().tolist()):
-            texts = rows[row_index]["texts"]
-            peptide = texts[candidate_index] if texts else ""
-            output.append(
-                Prediction(
-                    dataset_index=int(dataset_indices[row_index]),
-                    peptide=peptide,
-                    confidence=float(confidence[row_index]),
-                    route=routes[row_index],
+            output = [
+                Prediction(int(index), "", 0.0, "none", "no_valid_candidate")
+                for index in dataset_indices
+            ]
+            valid = [index for index, row in enumerate(rows) if row["texts"]]
+            if valid:
+                data = self._tensorize(
+                    [rows[index] for index in valid],
+                    precursors_device[valid],
+                    memory[valid, 0],
                 )
-            )
+                selected, confidence, routes = self._observable_select(
+                    data, spectra[valid]
+                )
+                for position, candidate_index in enumerate(selected.cpu().tolist()):
+                    row_index = valid[position]
+                    output[row_index] = Prediction(
+                        int(dataset_indices[row_index]),
+                        rows[row_index]["texts"][candidate_index],
+                        float(confidence[position]),
+                        routes[position],
+                    )
         return output
 
     def predict_lmdb(

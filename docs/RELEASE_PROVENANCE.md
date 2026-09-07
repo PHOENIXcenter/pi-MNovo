@@ -13,7 +13,7 @@
 | Score threshold | approximately 0.92 |
 
 The public checkpoint was repacked from the frozen manuscript checkpoint to
-remove machine-local paths. All 286 backbone state tensors were compared with
+remove some machine-local paths. This historical statement did not cover all nested component metadata; the recursive review audit supersedes the path-cleanliness claim. All 286 backbone state tensors were compared with
 `torch.equal`; no tensor changed. Component payload hashes are verified during
 checkpoint extraction.
 
