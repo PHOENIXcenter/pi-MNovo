@@ -5,6 +5,8 @@ mass spectra. The release combines a non-autoregressive CTC backbone,
 precise-mass-control candidate generation, three candidate-ranking paths, and
 a conservative observable router in one inference entry point.
 
+**Preprint:** [π-MNovo improves de novo peptide sequencing through microbial-domain adaptation and evidence-guided candidate selection](https://doi.org/10.64898/2026.09.22.753549) (bioRxiv, 2026).
+
 ## Package and checkpoint
 
 The Python package version is `0.1.1.dev0`. The downloadable unified checkpoint
@@ -212,6 +214,21 @@ python scripts/verify_release.py --checkpoint models/pi-MNovo-v0.1.0.ckpt
 
 The code is released under the MIT License. See `NOTICE` for upstream
 attribution and `CITATION.cff` for citation metadata.
+
+If you use pi-MNovo in your research, please cite our preprint:
+
+> Ye, J. et al. π-MNovo improves de novo peptide sequencing through microbial-domain adaptation and evidence-guided candidate selection. *bioRxiv* (2026). https://doi.org/10.64898/2026.09.22.753549
+
+```bibtex
+@article{ye2026pimnovo,
+  title = {{$\pi$-MNovo} improves de novo peptide sequencing through microbial-domain adaptation and evidence-guided candidate selection},
+  author = {Ye, Jingwen and Zhang, Xin and Sun, Boyan and Ling, Tianze and Liang, Zhendong and Dong, Jingyi and Zheng, Yuan and Jin, Hui and Jin, Liming and Hao, Zikai and Li, Leyuan and Chang, Cheng},
+  journal = {bioRxiv},
+  year = {2026},
+  doi = {10.64898/2026.09.22.753549},
+  url = {https://doi.org/10.64898/2026.09.22.753549}
+}
+```
 
 ## Data validation utilities
 
