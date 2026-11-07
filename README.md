@@ -1,6 +1,13 @@
 # pi-MNovo
 
 CTC peptide sequencing with Beam20 + PMC, three experts and an observable router.
+
+Prediction and evaluation use the checkpoint beam width by default (20 for both
+published checkpoints). To explore another width, pass `--beam-width 10` or
+set `runtime.beam_width: 10` in the runtime YAML; the command line takes
+precedence. The width controls CTC search before PMC merging and reranking,
+not the number of distinct candidates guaranteed per spectrum. A changed
+width can change predictions; do not reuse a CCT profile fitted at another width.
 Optional Counterpart FDR is post-processing, not a change to sequence selection.
 
 **Version 0.2.1** · [中文使用说明与代码导读](docs/README.zh-CN.md)

@@ -169,6 +169,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--batch-size", type=int)
     parser.add_argument("--n-workers", type=int)
     parser.add_argument("--ctc-processes", type=int)
+    parser.add_argument("--beam-width", type=int, help="CTC search width (default: checkpoint setting).")
     parser.add_argument(
         "--device",
         choices=("auto", "cuda", "cpu"),
@@ -235,8 +236,7 @@ def apply_config(args: argparse.Namespace) -> argparse.Namespace:
             raise ValueError(
                 f"Cannot override frozen inference fields: {sorted(changed)}"
             )
-        # Every stage must use the same preprocessing and mass schema. Only
-        # operational controls may be overridden by an external inference YAML.
+        # Keep preprocessing and the mass schema fixed across stages.
         overrides = config.get("runtime", {})
         if not isinstance(overrides, dict):
             raise TypeError(f"'runtime' must be a mapping in {config_path}")
@@ -247,6 +247,13 @@ def apply_config(args: argparse.Namespace) -> argparse.Namespace:
         raise TypeError(f"'runtime' must be a mapping in {config_path}")
 
     args.mode = args.mode or runtime.get("mode", "fast")
+    width = getattr(args, "beam_width", None)
+    if width is None:
+        width = runtime.get("beam_width")
+    if width is not None and (type(width) is not int or width < 1):
+        raise ValueError("beam_width must be a positive integer")
+    # The default keeps the original runtime identity for existing CCT profiles.
+    args.beam_width = None if width == config.get("n_beams") else width
     args.batch_size = (
         args.batch_size
         if args.batch_size is not None
@@ -314,6 +321,7 @@ def run(
         batch_size=args.batch_size,
         n_workers=args.n_workers,
         ctc_processes=args.ctc_processes,
+        initial_beam=getattr(args, "beam_width", None),
     )
     cct_profile = None
     cct_output = Path(args.output).with_suffix(".cct")

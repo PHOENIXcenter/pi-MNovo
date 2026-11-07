@@ -163,15 +163,11 @@ class MNovoRuntime:
         self.config = yaml.safe_load(
             (self.root / "config" / "inference.yaml").read_text(encoding="utf-8")
         )
-        self.beam_width = int(self.config["n_beams"])
-        if (
-            self.options.initial_beam is not None
-            and int(self.options.initial_beam) != self.beam_width
-        ):
-            raise ValueError(
-                "The release runtime is frozen to beam width "
-                f"{self.beam_width}."
-            )
+        self.beam_width = self.options.initial_beam
+        if self.beam_width is None:
+            self.beam_width = int(self.config["n_beams"])
+        if type(self.beam_width) is not int or self.beam_width < 1:
+            raise ValueError("beam_width must be a positive integer")
         self.device = torch.device(
             "cuda"
             if device == "auto" and torch.cuda.is_available()

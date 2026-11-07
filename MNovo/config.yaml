@@ -1,9 +1,10 @@
 # Optional runtime controls for prediction and evaluation.
 #
-# Model architecture, preprocessing, candidate generation, routing, confidence,
-# and FDR settings are frozen in the checkpoint and are loaded automatically.
+# Model components and preprocessing are loaded from the checkpoint.
+# Changing beam width can change predictions and requires a matching FDR profile.
 # Most users do not need to pass this file. Command-line options take precedence.
 runtime:
+  # beam_width: 10  # Omit to use the checkpoint default (20 for the published weights).
   batch_size: 128
   n_workers: 16
   ctc_processes: 16
