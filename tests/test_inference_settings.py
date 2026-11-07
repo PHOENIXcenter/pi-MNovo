@@ -10,6 +10,54 @@ from MNovo.inference.config import resolve_settings
 from MNovo.inference.runtime import RuntimeOptions
 
 
+def test_public_cli_requires_config_and_rejects_removed_flags(monkeypatch):
+    from MNovo.cli import parse_args
+    for extra in ([], ["--config", "unused.yaml", "--beam-width", "10"]):
+        monkeypatch.setattr("sys.argv", ["pi-mnovo", "--model", "denovo", "--input", "sample.mgf",
+                                       "--output", "pred.tsv", *extra])
+        with pytest.raises(SystemExit):
+            parse_args()
+
+
+def test_yaml_beam_width_and_vocabulary_order(tmp_path):
+    frozen = tmp_path / "config/inference.yaml"
+    frozen.parent.mkdir()
+    frozen.write_text("n_beams: 20\nresidues: {I: 113.084064, L: 113.084064}")
+    cfg = tmp_path / "user.yaml"
+    args = lambda: SimpleNamespace(model_dir=str(tmp_path), config=str(cfg), mode=None,
+                                   batch_size=None, n_workers=None, ctc_processes=None, temp_dir=None)
+    cfg.write_text("n_beams: 10")
+    assert apply_config(args()).beam_width == 10
+    cfg.write_text("residues: {L: 113.084064, I: 113.084064}")
+    with pytest.raises(ValueError, match="order"):
+        apply_config(args())
+
+
+def test_training_config_dispatch_without_training(tmp_path, monkeypatch):
+    from MNovo import cli
+    cfg = tmp_path / "train.yaml"
+    cfg.write_text("runtime: {validation_input: valid.mgf, checkpoint: init.ckpt}")
+    monkeypatch.setattr("sys.argv", ["pi-mnovo", "--model", "train", "--config", str(cfg),
+                                    "--input", "train.mgf", "--output", "out"])
+    calls = []
+    monkeypatch.setattr(cli.subprocess, "run", lambda command, check: calls.append(command))
+    cli.main()
+    command, = calls
+    assert command[command.index("--peak_path_val") + 1] == "valid.mgf"
+    assert command[command.index("--model") + 1] == "init.ckpt"
+    assert command[command.index("--config") + 1] == str(cfg.resolve())
+
+
+def test_lmdb_input_via_config(tmp_path, monkeypatch):
+    from MNovo.cli import parse_args
+    cfg = tmp_path / "eval.yaml"
+    cfg.write_text("runtime: {model_dir: weights.ckpt, input_format: lmdb}")
+    monkeypatch.setattr("sys.argv", ["pi-mnovo", "--model", "eval", "--config", str(cfg),
+                                    "--input", "test.lmdb", "--output", "out.tsv"])
+    args = parse_args()
+    assert args.lmdb == "test.lmdb" and args.input is None
+
+
 @pytest.mark.parametrize("overrides", [
     {"mass_control_tol": 0}, {"mass_control_tol": float("nan")},
     {"PMC_enable": "false"}, {"n_peaks": True}, {"n_peaks": -1},

@@ -28,13 +28,13 @@ def batch_shards(indices, batch_size, workers):
 def selected_devices(spec, visible=None):
     values = spec.split(",")
     if not all(v.isdigit() for v in values) or len(set(values)) != len(values):
-        raise ValueError("--gpus requires distinct non-negative visible indices")
+        raise ValueError("runtime.gpus requires distinct non-negative visible indices")
     indices = [int(v) for v in values]
     if visible is None:
         return [str(v) for v in indices]
     allowed = visible.split(",") if visible else []
     if any(v >= len(allowed) for v in indices):
-        raise ValueError("--gpus exceeds CUDA_VISIBLE_DEVICES")
+        raise ValueError("runtime.gpus exceeds CUDA_VISIBLE_DEVICES")
     return [allowed[v] for v in indices]
 
 
@@ -97,7 +97,7 @@ def run_selected_devices(args, lmdb, input_files, total_spectra):
     if not args.gpus:
         return run(args, lmdb, input_files, total_spectra)
     if args.device not in ("auto", "cuda", "cuda:0"):
-        raise ValueError("--gpus selects CUDA devices; do not combine with a different --device")
+        raise ValueError("runtime.gpus selects CUDA devices; do not combine with a different runtime.device")
     devices = selected_devices(args.gpus, os.environ.get("CUDA_VISIBLE_DEVICES"))
     indices = validate_selection(np.load(args.indices, allow_pickle=False) if args.indices else None,
                                  total_spectra, args.max_samples, args.task)
@@ -110,15 +110,15 @@ def run_selected_devices(args, lmdb, input_files, total_spectra):
     features = args.cct_features_output
     if args.fdr_mode == "on":
         if not args.cct_profile or not args.cct_scope_id:
-            raise ValueError("FDR requires --fdr-profile and --scope-id")
+            raise ValueError("FDR requires runtime.cct_profile and runtime.cct_scope_id")
         features = features or str(output.with_suffix(".cct_features.csv"))
     elif args.cct_profile:
-        raise ValueError("--fdr-profile requires --fdr on")
+        raise ValueError("runtime.cct_profile requires runtime.fdr_mode=on")
     reserved = [output, work, output.with_suffix(".cct")]
     if features:
         reserved += [Path(features).resolve(), Path(str(features) + ".receipt.json").resolve()]
         if not args.cct_scope_id:
-            raise ValueError("Feature export requires --scope-id")
+            raise ValueError("Feature export requires runtime.cct_scope_id")
     if len(set(reserved)) != len(reserved) or any(p.exists() for p in reserved):
         raise FileExistsError("Output artifacts must be distinct and absent")
     if any(output.with_suffix(".cct") in p.parents or work in p.parents for p in reserved):

@@ -8,7 +8,6 @@ import pytest
 from MNovo.denovo.spectrum_parsers import MgfParser
 from MNovo.data.input import resolve_mgf_inputs
 from MNovo.cli import (
-    DEFAULT_RELEASE,
     PROTON_MASS,
     WATER_MASS,
     apply_config,
@@ -18,8 +17,10 @@ from MNovo.cli import (
 )
 
 
-def test_default_release_uses_working_directory_models() -> None:
-    assert DEFAULT_RELEASE == Path("models/pi-MNovo-v0.1.0.ckpt")
+def test_packaged_config_selects_published_isolate_checkpoint() -> None:
+    import yaml
+    cfg = Path(__file__).resolve().parents[1] / "MNovo/config.yaml"
+    assert yaml.safe_load(cfg.read_text())["runtime"]["model_dir"] == "./pi-MNovo-isolate.ckpt"
 
 
 def test_default_config_is_packaged() -> None:
@@ -94,10 +95,12 @@ def test_runtime_defaults_and_cli_overrides(tmp_path: Path) -> None:
     assert result.config == str(config.resolve())
 
 
-def test_cli_defaults_to_automatic_device(monkeypatch) -> None:
+def test_cli_defaults_to_automatic_device(monkeypatch, tmp_path) -> None:
+    cfg = tmp_path / "user.yaml"
+    cfg.write_text("runtime: {model_dir: weights.ckpt}")
     monkeypatch.setattr(
         "sys.argv",
-        ["pi-mnovo", "--input", "input.mgf", "--output", "output.tsv"],
+        ["pi-mnovo", "--model", "denovo", "--config", str(cfg), "--input", "input.mgf", "--output", "output.tsv"],
     )
     from MNovo.cli import parse_args
 

@@ -30,6 +30,13 @@ def config(root):
     return path, values
 
 
+def user_config(tmp_path, model, metrics=None):
+    path = tmp_path / "user.yaml"
+    path.write_text(yaml.safe_dump({"runtime": {"model_dir": str(model),
+                                "metrics_output": str(metrics) if metrics else None}}))
+    return str(path)
+
+
 def test_all_rejected_eval_replaces_previous_metrics(tmp_path, monkeypatch):
     config(tmp_path)
     source = tmp_path / "input.mgf"
@@ -38,8 +45,7 @@ def test_all_rejected_eval_replaces_previous_metrics(tmp_path, monkeypatch):
     metrics = tmp_path / "custom.json"
     metrics.write_text('{"peptide_recall": 0.95, "previous": true}')
     monkeypatch.setattr(sys, "argv", ["pi-mnovo", "--model", "eval", "--input", str(source),
-                        "--model-dir", str(tmp_path), "--output", str(output),
-                        "--metrics-output", str(metrics)])
+                        "--config", user_config(tmp_path, tmp_path, metrics), "--output", str(output)])
     monkeypatch.setattr(cli, "resolve_model_release", lambda _: tmp_path)
     monkeypatch.setattr(cli, "MNovoRuntime", lambda *a, **k: pytest.fail("loaded model"))
     cli.main()
@@ -140,7 +146,7 @@ def test_cli_failure_state_covers_every_phase(tmp_path, monkeypatch, failure, ex
     source.write_text(block("good"))
     output = tmp_path / "result.tsv"
     monkeypatch.setattr(sys, "argv", ["pi-mnovo", "--model", "eval", "--input", str(source),
-                        "--output", str(output), "--model-dir", str(tmp_path)])
+                        "--output", str(output), "--config", user_config(tmp_path, tmp_path)])
     if failure != "model":
         monkeypatch.setattr(cli, "resolve_model_release", lambda _: tmp_path)
     if failure == "config":
@@ -215,10 +221,10 @@ def test_cli_checks_output_conflicts_before_first_write(tmp_path, monkeypatch, c
         alias.hardlink_to(source)
     metrics = {"mgf": source, "model": model, "predictions": output,
                "audit": output.with_suffix(".input-audit.tsv"), "hardlink": alias}[collision]
+    cfg = user_config(tmp_path, model, metrics)
     before = {p.name: p.read_bytes() for p in tmp_path.iterdir()}
     monkeypatch.setattr(sys, "argv", ["pi-mnovo", "--model", "eval", "--input",
-                        str(tmp_path / "*.mgf"), "--model-dir", str(model),
-                        "--output", str(output), "--metrics-output", str(metrics)])
+                        str(tmp_path / "*.mgf"), "--config", cfg, "--output", str(output)])
     with pytest.raises(ValueError, match="Output path conflict"):
         cli.main()
     assert {p.name: p.read_bytes() for p in tmp_path.iterdir()} == before

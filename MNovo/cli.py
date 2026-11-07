@@ -32,7 +32,6 @@ from MNovo.inference.selection import validate_selection
 from MNovo.inference.config import EDITABLE, resolve_settings
 from MNovo.data.input_audit import InputAudit
 
-DEFAULT_RELEASE = Path("models/pi-MNovo-v0.1.0.ckpt")
 OUTPUT_HEADER = (
     "TITLE\tScan_No\tExp.MH+\tCharge\tSequence\tCalc.MH+\t"
     "Mass_Shift(Exp.-Calc.)\tScore\tModification\tStatus\tRoute\tdataset_index\n"
@@ -135,87 +134,52 @@ def output_row(
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser()
-    parser.add_argument(
-        "--model",
-        "--task",
-        dest="task",
-        choices=("denovo", "eval", "train"),
-        default="denovo",
-        help="Task to run: denovo prediction, annotated evaluation, or training.",
-    )
-    parser.add_argument(
-        "--model-dir",
-        default=str(DEFAULT_RELEASE),
-        help="Unified MNovo .ckpt package or an extracted model directory.",
-    )
-    parser.add_argument(
-        "--config",
-        help=(
-            "Optional prediction/evaluation YAML for decoding, peak filters and runtime controls."
-        ),
-    )
-    inputs = parser.add_mutually_exclusive_group(required=True)
-    inputs.add_argument(
-        "--input",
-        help=(
-            "Single MGF file, directory, or glob such as '*.mgf' or "
-            "'**/*.mgf'; the .mgf extension is case-insensitive."
-        ),
-    )
-    inputs.add_argument("--lmdb", help="Existing preprocessed LMDB input.")
+    parser = argparse.ArgumentParser(allow_abbrev=False)
+    parser.add_argument("--model", dest="task", required=True, choices=("denovo", "eval", "train"))
+    parser.add_argument("--config", required=True, help="Path to the task YAML.")
+    parser.add_argument("--input", required=True, help="MGF file, directory, glob or LMDB.")
     parser.add_argument("--output", required=True)
-    parser.add_argument("--mode", choices=("fast",))
-    parser.add_argument("--batch-size", type=int)
-    parser.add_argument("--n-workers", type=int)
-    parser.add_argument("--ctc-processes", type=int)
-    parser.add_argument("--beam-width", type=int, help="CTC search width (default: checkpoint setting).")
-    parser.add_argument(
-        "--device",
-        choices=("auto", "cuda", "cpu"),
-        default="auto",
-        help=(
-            "Backbone device. The default selects CUDA; PMC still requires "
-            "a CUDA-capable system when --device cpu is used."
-        ),
-    )
-    parser.add_argument("--max-samples", type=int, default=0)
-    parser.add_argument(
-        "--indices", help="Unique 1-D integer .npy indices; unavailable for eval."
-    )
-    parser.add_argument(
-        "--candidate-mode",
-        choices=("union", "beam-only"),
-        default=None,
-        help="beam-only is diagnostic and changes the candidate algorithm.",
-    )
-    parser.add_argument("--fdr", "--fdr-mode", dest="fdr_mode", choices=("off", "on"), default="off",
-                        help="Optional paired CCT filtering; off preserves native predictions.")
-    parser.add_argument("--gpus", help="Visible CUDA device indices, e.g. 0 or 0,1. Inference uses one process per device.")
-    parser.add_argument("--fdr-profile", "--cct-profile", dest="cct_profile", help="Corrected CCT fitted profile (.pt); required for --fdr on")
-    parser.add_argument("--scope-id", "--cct-scope-id", dest="cct_scope_id", help="Explicit analysis scope shared by calibration and application")
-    parser.add_argument("--features-output", "--cct-features-output", dest="cct_features_output", help="Export paired CTC features without fitting; off or on")
-    parser.add_argument("--psm-fdr", type=float, default=.05)
-    parser.add_argument("--peptide-fdr", type=float, default=.05)
-    parser.add_argument(
-        "--metrics-output",
-        help="Evaluation JSON path; defaults beside --output.",
-    )
-    parser.add_argument("--validation-input")
-    parser.add_argument("--test-input", help="Deprecated: ignored during training.")
-    parser.add_argument(
-        "--checkpoint",
-        help="Optional .ckpt initialization/resume weight for --model train.",
-    )
-    parser.add_argument(
-        "--temp-dir",
-        help="Optional parent directory for the automatically created MGF LMDB.",
-    )
-    return parser.parse_args()
+    args = parser.parse_args()
+    config = yaml.safe_load(Path(args.config).read_text(encoding="utf-8"))
+    if not isinstance(config, dict):
+        parser.error("config must be a YAML mapping")
+    run = config.get("runtime", {})
+    defaults = dict(model_dir=None, input_format="mgf", mode=None, batch_size=None,
+                    n_workers=None, ctc_processes=None, device="auto", max_samples=0,
+                    indices=None, candidate_mode=None, fdr_mode="off", gpus=None,
+                    cct_profile=None, cct_scope_id=None, cct_features_output=None,
+                    psm_fdr=.05, peptide_fdr=.05, metrics_output=None,
+                    validation_input=None, checkpoint=None, temp_dir=None)
+    if not isinstance(run, dict) or run.keys() - defaults.keys():
+        parser.error("invalid runtime mapping or unknown runtime key")
+    for key, value in {**defaults, **run}.items():
+        setattr(args, key, value)
+    if args.task != "train" and not args.model_dir:
+        parser.error("set runtime.model_dir to the downloaded checkpoint")
+    if args.fdr_mode not in ("on", "off"):
+        parser.error('runtime.fdr_mode must be the quoted string "on" or "off"')
+    if args.input_format not in ("lmdb", "mgf"):
+        parser.error("runtime.input_format must be mgf or lmdb")
+    if args.device not in ("auto", "cpu", "cuda") or args.candidate_mode not in (None, "union", "beam-only"):
+        parser.error("invalid runtime.device or runtime.candidate_mode")
+    for key, minimum in (("batch_size", 1), ("n_workers", 0), ("ctc_processes", 1), ("max_samples", 0)):
+        value = getattr(args, key)
+        if value is not None and (type(value) is not int or value < minimum):
+            parser.error(f"runtime.{key} must be an integer >= {minimum}")
+    for key in ("psm_fdr", "peptide_fdr"):
+        value = getattr(args, key)
+        if type(value) not in (int, float) or not 0 < value <= 1:
+            parser.error(f"runtime.{key} must be in (0, 1]")
+    if args.gpus is not None:
+        args.gpus = str(args.gpus)
+    args.lmdb = args.input if args.input_format == "lmdb" else None
+    if args.lmdb:
+        args.input = None
+    return args
 
 
 def apply_config(args: argparse.Namespace) -> argparse.Namespace:
-    model_dir = Path(args.model_dir).expanduser()
+    model_dir = Path(args.model_dir or ".").expanduser()
     config_path = (
         Path(args.config).expanduser()
         if args.config
@@ -231,8 +195,12 @@ def apply_config(args: argparse.Namespace) -> argparse.Namespace:
         changed = [
             key
             for key, value in config.items()
-            if key != "runtime" and key not in EDITABLE and (key not in frozen or value != frozen[key])
+            if key not in {"runtime", "n_beams"} and key not in EDITABLE
+            and (key not in frozen or value != frozen[key])
         ]
+        if "residues" in config and list(config["residues"]) != list(frozen.get("residues", {})):
+            raise ValueError("Residue order must match the checkpoint vocabulary")
+        args.beam_width = config.get("n_beams", getattr(args, "beam_width", None))
         if changed:
             raise ValueError(
                 f"Cannot override frozen inference fields: {sorted(changed)}"
@@ -253,7 +221,7 @@ def apply_config(args: argparse.Namespace) -> argparse.Namespace:
     if getattr(args, "candidate_mode", None) is None:
         args.candidate_mode = "union" if config.get("PMC_enable", True) else "beam-only"
     elif args.candidate_mode == "union" and not config.get("PMC_enable", True):
-        raise ValueError("--candidate-mode union conflicts with PMC_enable: false")
+        raise ValueError("runtime.candidate_mode union conflicts with PMC_enable: false")
     width = getattr(args, "beam_width", None)
     if width is None:
         width = runtime.get("beam_width")
@@ -295,13 +263,13 @@ def run(
     cct_features = getattr(args, "cct_features_output", None)
     if cct_enabled:
         if not getattr(args, "cct_profile", None):
-            raise ValueError("--fdr on requires --cct-profile; fitting is separate")
+            raise ValueError("runtime.fdr_mode=on requires runtime.cct_profile; fitting is separate")
         cct_features = cct_features or str(Path(args.output).with_suffix(".cct_features.csv"))
         fdr_mode = "off"
     elif getattr(args, "cct_profile", None):
-        raise ValueError("--cct-profile requires --fdr on")
+        raise ValueError("runtime.cct_profile requires runtime.fdr_mode=on")
     if cct_features and (fdr_mode != "off" or not getattr(args, "cct_scope_id", None)):
-        raise ValueError("CCT export requires --cct-scope-id and no legacy confidence filtering")
+        raise ValueError("CCT export requires runtime.cct_scope_id and no legacy confidence filtering")
     indices = validate_selection(
         np.load(args.indices, allow_pickle=False) if args.indices else None,
         total_spectra,
@@ -521,7 +489,7 @@ def main() -> None:
     parsed = parse_args()
     metrics_output = parsed.metrics_output or str(Path(parsed.output).with_suffix(".metrics.json"))
     if parsed.max_samples < 0:
-        raise ValueError("--max-samples must be non-negative.")
+        raise ValueError("runtime.max_samples must be non-negative.")
     if parsed.task == "eval" and (parsed.indices or parsed.max_samples):
         raise ValueError(
             "eval requires all input spectra; subset parameters are unsupported."
@@ -539,13 +507,13 @@ def main() -> None:
         args = apply_config(parsed)
         if args.task == "train":
             if args.gpus:
-                raise ValueError("For training set trainer_devices in the YAML; --gpus is the inference selector.")
+                raise ValueError("For training set trainer_devices in the YAML; runtime.gpus is the inference selector.")
             if args.lmdb:
-                raise ValueError("--model train requires MGF input, not --lmdb.")
+                raise ValueError("--model train requires MGF input, not runtime.input_format=lmdb.")
             if not config_was_explicit:
                 raise ValueError("--model train requires an explicit training --config.")
             if not args.validation_input:
-                raise ValueError("--model train requires --validation-input.")
+                raise ValueError("--model train requires runtime.validation_input.")
             command = [
                 sys.executable,
                 "-m",

@@ -2,7 +2,7 @@
 
 ## 从哪一步开始？
 
-输入是含前体 m/z、电荷和碎片峰的 MGF。先按样本选择一个统一检查点，显式传给 `--model-dir`：
+按样本选择权重，在 `MNovo/config.yaml` 的 `runtime.model_dir` 中填写实际路径：
 
 | 样本 | v0.2.0 权重下载 |
 | --- | --- |
@@ -19,12 +19,10 @@ python -m pip check
 pi-mnovo --help
 ```
 
-以单菌谱图为例，设 `CHECKPOINT` 为本机文件的实际路径：
+预测和评估共用一份显式指定的配置。Beam 宽度（`n_beams: 20`）、PMC、谱峰过滤、残基字典、设备和 FDR 设置均在 YAML 中。预训练权重要求残基及修饰的顺序和质量与训练一致。
 
 ```bash
-# 在权重下载目录运行；真实群落样本改用 ./pi-MNovo-metaproteome.ckpt
-CHECKPOINT=./pi-MNovo-isolate.ckpt
-pi-mnovo --input sample.mgf --model-dir "$CHECKPOINT" --output predictions.tsv --fdr off
+pi-mnovo --model denovo --config MNovo/config.yaml --input sample.mgf --output predictions.tsv
 ```
 
 `Score` 是最终序列的置信分数，不是 q 值。若开启 CCT 过滤，还需要与样本范围、模型和实现相匹配的已拟合 profile；仅更换检查点不能代替这一步。详细参数见 [FDR 工作流](../CCT_MODULE.md)。
@@ -46,9 +44,9 @@ pi-mnovo --input sample.mgf --model-dir "$CHECKPOINT" --output predictions.tsv -
 
 **安装与依赖。** `environment.yml` 创建 Linux 环境，`requirements.txt` 固定推理依赖，`requirements-dev.txt` 加入测试和打包工具；`pyproject.toml` 的区间是包元数据，并非另一份经过验证的环境锁。原生轮子仅用于匹配的 Linux x86-64 / CPython 3.10 / PyTorch 环境。
 
-**评估。** 对有 SEQ 标注的输入，使用 `pi-mnovo --model eval --input labelled.mgf --model-dir "$CHECKPOINT" --output predictions.tsv --metrics-output metrics.json`。单独核对输入审计：未被输入层接收的谱图和已接收但序列预测为空的记录不是同一类。
+**评估。** 运行 `pi-mnovo --model eval --config MNovo/config.yaml --input labelled.mgf --output predictions.tsv`。输入层拒绝的记录与已接收但预测为空的记录分别计数。
 
-**训练。** 命令和配置示例见主 README 的 Evaluation and training 一节。训练的 `--checkpoint` 是骨干训练权重，不要把统一推理包误当成断点续训文件。本次整理不执行训练示例。
+**训练。** 使用 `docs/training_config.example.yaml`，其中 `runtime.validation_input` 是验证集路径，`runtime.checkpoint` 是可选的骨干训练权重，并非统一推理包。
 
 **核对权重。** 从下载清单取得对应文件的可信 SHA-256，在受支持环境运行 `python scripts/verify_release.py --checkpoint "$CHECKPOINT" --expected-sha256 "$SHA256"`。只加载来源可信的权重与索引；哈希匹配不能替代来源判断。
 

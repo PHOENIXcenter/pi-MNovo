@@ -421,9 +421,12 @@ def test_metadata_recursive_sanitization_preserves_tensor():
     assert "/home/" not in output["nested"][0][0]
 
 
-def test_cli_rejects_subset_eval_before_model_loading(monkeypatch):
+def test_cli_rejects_subset_eval_before_model_loading(monkeypatch, tmp_path):
     from MNovo import cli
     import sys
+
+    cfg = tmp_path / "eval.yaml"
+    cfg.write_text("runtime: {model_dir: unused.ckpt, max_samples: 1}")
 
     monkeypatch.setattr(
         sys,
@@ -436,8 +439,8 @@ def test_cli_rejects_subset_eval_before_model_loading(monkeypatch):
             "missing.mgf",
             "--output",
             "unused.tsv",
-            "--max-samples",
-            "1",
+            "--config",
+            str(cfg),
         ],
     )
 

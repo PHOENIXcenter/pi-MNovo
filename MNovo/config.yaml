@@ -1,18 +1,75 @@
-# Optional runtime controls for prediction and evaluation.
-#
-# Defaults below match both published checkpoints. A changed configuration
-# can change predictions and requires a matching FDR profile.
-# Most users do not need to pass this file. Command-line options take precedence.
+# Prediction and evaluation. Relative paths use the current working directory.
+# Editable decoding and peak filters:
+n_beams: 20
 PMC_enable: true
-mass_control_tol: 0.1      # PMC neutral mass tolerance (Da, not ppm)
-n_peaks: 800               # Maximum retained peaks per spectrum
+mass_control_tol: 0.1       # PMC mass tolerance (Da)
+n_peaks: 800
 min_mz: 1.0
 max_mz: 6500.0
-min_intensity: 0.0         # Relative to the base peak (0 to 1)
-remove_precursor_tol: 1.0  # Precursor peak removal tolerance (Da)
+min_intensity: 0.0          # Fraction of the base peak intensity
+remove_precursor_tol: 1.0   # Precursor peak removal window (Da)
+
+# Model definition: must match the selected checkpoint for inference.
+max_charge: 10
+precursor_mass_tol: 50.0
+isotope_error_range: [0, 1]
+dim_model: 400
+n_head: 8
+dim_feedforward: 1024
+n_layers: 9
+dropout: 0.18
+dim_intensity: null
+custom_encoder: null
+max_length: 40
+n_log: 1
+
+# Ordered residue and modification tokens, with monoisotopic masses in Da.
+residues:
+  G: 57.021464
+  A: 71.037114
+  S: 87.032028
+  P: 97.052764
+  V: 99.068414
+  T: 101.04767
+  "C+57.021": 160.030649
+  L: 113.084064
+  I: 113.084064
+  N: 114.042927
+  D: 115.026943
+  Q: 128.058578
+  K: 128.094963
+  E: 129.042593
+  M: 131.040485
+  H: 137.058912
+  F: 147.068414
+  R: 156.101111
+  Y: 163.063329
+  W: 186.079313
+  "M+15.995": 147.0354
+  "N+0.984": 115.026943
+  "Q+0.984": 129.042594
+  "+42.011": 42.010565
+  "+43.006": 43.005814
+  "-17.027": -17.026549
+  "+43.006-17.027": 25.980265
+
 runtime:
-  # beam_width: 10  # Omit to use the checkpoint default (20 for the published weights).
+  model_dir: ./pi-MNovo-isolate.ckpt  # Or ./pi-MNovo-metaproteome.ckpt
+  input_format: mgf                   # mgf or lmdb
+  mode: fast
+  device: auto
+  gpus: null                          # e.g. "0" or "0,1"
   batch_size: 128
   n_workers: 16
   ctc_processes: 16
-  # temp_dir: /path/to/temporary/storage
+  candidate_mode: null                # Derive from PMC_enable
+  max_samples: 0                      # 0: all spectra
+  indices: null                       # Optional subset for denovo only
+  temp_dir: null
+  metrics_output: null                # eval: derive from output filename
+  fdr_mode: "off"
+  cct_profile: null
+  cct_scope_id: null
+  cct_features_output: null
+  psm_fdr: 0.05
+  peptide_fdr: 0.05

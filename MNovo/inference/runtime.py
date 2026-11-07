@@ -146,7 +146,7 @@ class MNovoRuntime:
         self.components = self.root / "components"
         self.options = options or RuntimeOptions()
         if fdr_mode != "off":
-            raise ValueError("Runtime performs sequencing only; use CLI --fdr on for post-processing.")
+            raise ValueError("Runtime performs sequencing only; use CLI runtime.fdr_mode=on for post-processing.")
         self.fdr_mode = fdr_mode
         if self.options.mode != "fast":
             raise ValueError("The release runtime supports only mode='fast'.")
@@ -160,7 +160,7 @@ class MNovoRuntime:
         )
         if self.options.candidate_mode == "union" and not torch.cuda.is_available():
             raise RuntimeError(
-                "PMC union requires CUDA. Use --candidate-mode beam-only for diagnostics."
+                "PMC union requires CUDA. Use runtime.candidate_mode beam-only for diagnostics."
             )
         self.config = yaml.safe_load(
             (self.root / "config" / "inference.yaml").read_text(encoding="utf-8")

@@ -11,8 +11,9 @@ spectrum/PSM, not peptide membership in a protein database. Matching preserves
 modifications and merges I/L. Unknown references remain unknown on both views.
 
 ```bash
-pi-mnovo --input mixed.mgf --model-dir model.ckpt --output native.tsv \
-  --fdr off --scope-id study-v1 --features-output pairs.csv
+# In the YAML runtime section set fdr_mode: "off", cct_scope_id: study-v1,
+# and cct_features_output: pairs.csv.
+pi-mnovo --model denovo --config MNovo/config.yaml --input mixed.mgf --output native.tsv
 ```
 
 ## Fixed roles

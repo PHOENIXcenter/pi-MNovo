@@ -1,5 +1,8 @@
 # Example backbone-training configuration.
 # This file is for model development, not routine prediction or evaluation.
+runtime:
+  validation_input: "./eval/*.mgf"
+  checkpoint: null  # Optional backbone initialization or resume weight
 random_seed: 3407
 
 PMC_enable: true

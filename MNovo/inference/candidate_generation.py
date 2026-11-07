@@ -84,7 +84,7 @@ def pmc_candidates(
                 statistics["pmc_failed"] += 1
             raise RuntimeError(
                 f"PMC candidate failed at batch item {idx}; union inference aborted. "
-                "Use explicit --candidate-mode beam-only for diagnostic inference."
+                "Use explicit runtime.candidate_mode beam-only for diagnostic inference."
             ) from error
     return candidates
 

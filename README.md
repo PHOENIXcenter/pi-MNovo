@@ -2,27 +2,19 @@
 
 CTC peptide sequencing with Beam20 + PMC, three experts and an observable router.
 
-Prediction and evaluation use the checkpoint beam width by default (20 for both
-published checkpoints). To explore another width, pass `--beam-width 10` or
-set `runtime.beam_width: 10` in the runtime YAML; the command line takes
-precedence. The width controls CTC search before PMC merging and reranking,
-not the number of distinct candidates guaranteed per spectrum. A changed
-width can change predictions; do not reuse a CCT profile fitted at another width.
-
-For peak filtering and precise mass control, copy [MNovo/config.yaml](MNovo/config.yaml),
-edit the values, and pass the file with `--config`. The example shows the
-published defaults; omitted keys inherit their checkpoint values. Set
-`PMC_enable: false` for CTC beam candidates without the PMC proposal.
-`mass_control_tol` sets the PMC mass tolerance in Da, not ppm or the
-precursor peak removal window. Changes to decoding or preprocessing require
-a matching CCT profile when using FDR filtering. Training configuration is separate.
+The main command takes four required arguments: `--model` (denovo, eval or train),
+`--config`, `--input` and `--output`. For prediction or evaluation, copy
+[MNovo/config.yaml](MNovo/config.yaml) and set `runtime.model_dir` to the downloaded
+checkpoint. The file lists all checkpoint configuration fields, including the
+ordered residue dictionary, plus runtime settings. Change `n_beams: 20` to try
+another width or set `PMC_enable: false` to disable PMC. Changes to decoding or
+peak filters require a matching profile when applying FDR.
 Optional Counterpart FDR is post-processing, not a change to sequence selection.
 
 **Version 0.2.1** · [中文使用说明与代码导读](docs/README.zh-CN.md)
 
 Use the isolate checkpoint for microbial isolates and the metaproteome checkpoint
-for real-community metaproteomes. Pass the selected checkpoint explicitly with
-`--model-dir`. Neither checkpoint supplies a cohort-specific fitted CCT profile.
+for real-community metaproteomes. Neither checkpoint supplies a cohort-specific fitted CCT profile.
 
 ## Repository map
 
@@ -81,14 +73,7 @@ ranges in `pyproject.toml` alone does not reproduce that environment.
 ## Prediction
 
 ```bash
-# Use the path to the downloaded checkpoint. For community samples,
-# set CHECKPOINT=./pi-MNovo-metaproteome.ckpt instead.
-CHECKPOINT=./pi-MNovo-isolate.ckpt
-pi-mnovo --input sample.mgf --model-dir "$CHECKPOINT" --output native.tsv --fdr off
-# Explicit single GPU:
-pi-mnovo --input sample.mgf --model-dir "$CHECKPOINT" --output native.tsv --gpus 0
-# Multi-GPU, indices relative to CUDA_VISIBLE_DEVICES when set:
-pi-mnovo --input sample.mgf --model-dir "$CHECKPOINT" --output native.tsv --gpus 0,1
+pi-mnovo --model denovo --config MNovo/config.yaml --input sample.mgf --output native.tsv
 ```
 
 Input accepts MGF files, directories or quoted globs. Whole batches are assigned
@@ -97,7 +82,7 @@ reproduction. Native TSV includes sequence, Score, Route, Status and dataset_ind
 **Score is not an FDR or q-value.** Empty predictions remain explicit failures.
 
 The software computes the frozen C1/long-peptide sequence Score
-independently of `--fdr off/on`. CCT filtering and its fitted profiles are unchanged.
+independently of the YAML FDR setting. CCT filtering and its fitted profiles are unchanged.
 The Score uses the original confidence head and calibrator shipped with the unified
 checkpoint, not the router probability or a replacement CTC score. A new backbone
 does not establish calibration validity in a new domain. Missing scoring components
@@ -109,11 +94,8 @@ Input-audit sidecars reconcile original, accepted and rejected spectra.
 
 ## Optional FDR
 
-```bash
-pi-mnovo --input sample.mgf --model-dir "$CHECKPOINT" --output native.tsv \
-  --fdr on --scope-id study-v1 --fdr-profile fitted/cct_profile.pt \
-  --psm-fdr .05 --peptide-fdr .05
-```
+Set `runtime.fdr_mode: "on"`, `runtime.cct_scope_id` and `runtime.cct_profile`
+in your YAML, then run the same four-argument prediction command.
 
 FDR is off by default. A scope-matched calibrated profile is required.
 Changes to CCT feature definitions or scoring algorithms may invalidate a fitted
@@ -125,11 +107,8 @@ annotate/filter modes are unsupported. See [FDR workflow](CCT_MODULE.md).
 ## Evaluation and training
 
 ```bash
-pi-mnovo --model eval --input labelled.mgf --model-dir "$CHECKPOINT" \
-  --output predictions.tsv --metrics-output metrics.json
-pi-mnovo --model train --input './train/*.mgf' --validation-input './eval/*.mgf' \
-  --checkpoint backbone.ckpt --config docs/training_config.example.yaml \
-  --output training_run
+pi-mnovo --model eval --config MNovo/config.yaml --input labelled.mgf --output predictions.tsv
+pi-mnovo --model train --config docs/training_config.example.yaml --input './train/*.mgf' --output training_run
 ```
 
 Evaluation references use SEQ. CLI recall includes all accepted inputs, even
