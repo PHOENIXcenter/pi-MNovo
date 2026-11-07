@@ -7,9 +7,9 @@ from __future__ import annotations
 import csv
 from pathlib import Path
 
-from MNovo import cct_reference_features as reference
-from MNovo.cct_adapter import FEATURE_COLUMNS
-from MNovo.cct_policy_adapter import paired_reference_features_with_policy
+from MNovo.cct import cct_reference_features as reference
+from MNovo.cct.cct_adapter import FEATURE_COLUMNS
+from MNovo.cct.cct_policy_adapter import paired_reference_features_with_policy
 
 
 class CCTFeatureExporter:

@@ -35,7 +35,7 @@ dependencies = [
 
 [project.scripts]
 pi-mnovo = "MNovo.cli:main"
-pi-mnovo-fdr = "MNovo.cct_pipeline:main"
+pi-mnovo-fdr = "MNovo.cct.cct_pipeline:main"
 
 [tool.setuptools.packages.find]
 include = ["MNovo*"]

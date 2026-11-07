@@ -1,12 +1,12 @@
 # Apply the feature repair policy around the reference feature extractor.
 # 在参考特征提取器外应用修复规则。
 """Opt-in adapter; no monkey-patching or changes to frozen code."""
-from MNovo.cct_feature_policy import validate_attention, repair_features
+from MNovo.cct.cct_feature_policy import validate_attention, repair_features
 
 
 def paired_reference_features_with_policy(*args, reference, **kwargs):
     """Return the 33-column feature pair and separate per-side audit flags."""
-    from MNovo.cct_adapter import paired_reference_features, FEATURE_COLUMNS
+    from MNovo.cct.cct_adapter import paired_reference_features, FEATURE_COLUMNS
     flags = []
 
     class ReferenceProxy:

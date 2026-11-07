@@ -5,7 +5,7 @@ import pytest
 import torch
 from types import SimpleNamespace
 
-from MNovo.cct_adapter import (
+from MNovo.cct.cct_adapter import (
     AttentionCapture, occurrence_frames, paired_attention, paired_reference_features,
 )
 
@@ -48,7 +48,7 @@ def test_pair_rejects_single_residue():
 
 
 def test_reference_feature_pair_uses_same_peptide_and_encoder_columns():
-    from MNovo import cct_reference_features as reference
+    from MNovo.cct import cct_reference_features as reference
 
     peptide = "PEPTIDE"
     reverse = peptide[::-1]
@@ -78,8 +78,8 @@ def test_reference_feature_pair_uses_same_peptide_and_encoder_columns():
 
 def test_exporter_keeps_two_views_and_reference_label(tmp_path):
     import pandas as pd
-    from MNovo import cct_reference_features as reference
-    from MNovo.cct_runtime import CCTFeatureExporter
+    from MNovo.cct import cct_reference_features as reference
+    from MNovo.cct.cct_runtime import CCTFeatureExporter
 
     peptide = "PEPTIDE"
     tokens = list(range(1, len(peptide) + 1))

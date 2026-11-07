@@ -5,8 +5,8 @@ import argparse
 import json
 from pathlib import Path
 import pandas as pd
-from MNovo.cct_pipeline import SCHEMA, validate_roles
-from MNovo.cct_scoring import _sha256
+from MNovo.cct.cct_pipeline import SCHEMA, validate_roles
+from MNovo.cct.cct_scoring import _sha256
 
 
 def prepare(features, manifest, output):

@@ -64,8 +64,8 @@ def merge_predictions(paths, indices, output):
 
 def merge_features(paths, indices, output):
     import pandas as pd
-    from MNovo.cct_pipeline import SCHEMA, inference_contract
-    from MNovo.cct_scoring import _sha256
+    from MNovo.cct.cct_pipeline import SCHEMA, inference_contract
+    from MNovo.cct.cct_scoring import _sha256
     receipts = [json.loads(Path(str(p) + ".receipt.json").read_text()) for p in paths]
     for receipt in receipts:
         receipt["runtime_identity"] = inference_contract(receipt["runtime_identity"])
@@ -124,7 +124,7 @@ def run_selected_devices(args, lmdb, input_files, total_spectra):
     if any(output.with_suffix(".cct") in p.parents or work in p.parents for p in reserved):
         raise ValueError("Final outputs cannot be placed inside worker or FDR directories")
     if args.fdr_mode == "on":
-        from MNovo.cct_pipeline import load_profile, runtime_identity
+        from MNovo.cct.cct_pipeline import load_profile, runtime_identity
         from MNovo.runtime import RuntimeOptions
         options = RuntimeOptions(mode=args.mode, candidate_mode=args.candidate_mode,
                                  batch_size=args.batch_size, n_workers=args.n_workers,
@@ -165,7 +165,7 @@ def run_selected_devices(args, lmdb, input_files, total_spectra):
             Path(features).parent.mkdir(parents=True, exist_ok=True)
             receipt = merge_features(feature_paths, indices, features)
             if args.fdr_mode == "on":
-                from MNovo.cct_pipeline import load_profile, apply_profile
+                from MNovo.cct.cct_pipeline import load_profile, apply_profile
                 profile = load_profile(args.cct_profile, receipt["runtime_identity"], args.cct_scope_id,
                                        args.psm_fdr, args.peptide_fdr)
                 apply_profile(features, profile, output.with_suffix(".cct"))

@@ -318,7 +318,7 @@ def run(
     cct_profile = None
     cct_output = Path(args.output).with_suffix(".cct")
     if cct_features:
-        from MNovo.cct_pipeline import runtime_identity, load_profile
+        from MNovo.cct.cct_pipeline import runtime_identity, load_profile
         artifacts = [Path(p).resolve() for p in (args.output, cct_features,
                      str(cct_features) + ".receipt.json", cct_output,
                      str(args.output) + ".tmp", str(args.output) + ".final.tmp")]
@@ -339,7 +339,7 @@ def run(
     output.parent.mkdir(parents=True, exist_ok=True)
     exporter = None
     if cct_features:
-        from MNovo.cct_runtime import CCTFeatureExporter
+        from MNovo.cct.cct_runtime import CCTFeatureExporter
         Path(cct_features).parent.mkdir(parents=True, exist_ok=True)
         exporter = CCTFeatureExporter(runtime.backbone.decoder, runtime.config["residues"], cct_features)
         runtime.cct_exporter = exporter
@@ -414,13 +414,13 @@ def run(
     if count != progress_total:
         raise RuntimeError(f"Prediction count mismatch: {count} vs {progress_total}.")
     if exporter is not None:
-        from MNovo.cct_pipeline import write_receipt
+        from MNovo.cct.cct_pipeline import write_receipt
         if exporter.complete_pairs + exporter.invalid_pairs != count:
             raise RuntimeError("CCT paired feature accounting differs from native predictions")
         write_receipt(cct_features, identity, args.cct_scope_id, exporter)
     temporary.replace(output)
     if cct_enabled:
-        from MNovo.cct_pipeline import apply_profile, _sha256
+        from MNovo.cct.cct_pipeline import apply_profile, _sha256
         cct_report = apply_profile(cct_features, cct_profile, cct_output)
         cct_report["profile_sha256"] = _sha256(args.cct_profile)
         cct_report["native_predictions"] = str(output.resolve())

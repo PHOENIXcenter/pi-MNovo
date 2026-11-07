@@ -693,7 +693,7 @@ class MNovoRuntime:
         autocast = self.options.precision == "bf16" and self.device.type == "cuda"
         cct_exporter = getattr(self, "cct_exporter", None)
         if cct_exporter is not None:
-            from MNovo.cct_adapter import AttentionCapture
+            from MNovo.cct.cct_adapter import AttentionCapture
         attention_context = (
             AttentionCapture(self.backbone.decoder.layers)
             if cct_exporter is not None else nullcontext()

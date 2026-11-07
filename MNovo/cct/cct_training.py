@@ -8,7 +8,7 @@ import pandas as pd
 import torch
 from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import roc_auc_score, accuracy_score
-from MNovo.cct_scoring import MLPClassifier, _pack_models
+from MNovo.cct.cct_scoring import MLPClassifier, _pack_models
 
 def train_fixed(train, validation, columns, output, seed=454, epochs=50, device="auto"):
     """Adopted MLP/AdamW/early-stop recipe, without resplitting roles."""
@@ -82,5 +82,5 @@ def train_fixed(train, validation, columns, output, seed=454, epochs=50, device=
     torch.save(packed, output / 'score_models.pt')
     (output / 'metrics.json').write_text(json.dumps({k: v[2] for k, v in branches.items()}, indent=2))
     # Exact deployment scorer/float64 scaler path for all subsequent calibration.
-    from MNovo.cct_pipeline import _unpack
+    from MNovo.cct.cct_pipeline import _unpack
     return _unpack(packed, columns)

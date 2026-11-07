@@ -4,8 +4,8 @@ import numpy as np
 import pandas as pd
 import pytest
 from MNovo.multi_gpu import batch_shards, selected_devices, merge_predictions
-from MNovo.cct_pipeline import validate_roles, known_rows
-from MNovo.cct_scoring import select_psms
+from MNovo.cct.cct_pipeline import validate_roles, known_rows
+from MNovo.cct.cct_scoring import select_psms
 
 
 def test_whole_batches_preserve_batch_context():
@@ -56,12 +56,12 @@ def test_floor_does_not_remove_high_score_targets():
 
 
 def test_spearman_only_repair_policy():
-    from MNovo.cct_feature_policy import self_test
+    from MNovo.cct.cct_feature_policy import self_test
     assert self_test()["status"] == "PASS"
 
 
 def test_unknown_reference_not_negative_and_modifications_preserved():
-    from MNovo.cct_runtime import CCTFeatureExporter
+    from MNovo.cct.cct_runtime import CCTFeatureExporter
     from types import SimpleNamespace
     exporter = CCTFeatureExporter.__new__(CCTFeatureExporter)
     predictions = [SimpleNamespace(peptide="AM+15.995IK")] * 5

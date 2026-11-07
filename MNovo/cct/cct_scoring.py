@@ -11,7 +11,7 @@ import numpy as np
 import pandas as pd
 import torch
 
-from MNovo.cct_core.fdr import (
+from MNovo.cct.cct_core.fdr import (
     FDRContractError, accept_complete_score_groups, apply_frozen_gamma,
     calculate_fdr, combined_score, gamma_fdr,
 )

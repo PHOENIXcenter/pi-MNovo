@@ -5,9 +5,9 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from MNovo.cct_core.fdr import (FDRContractError, calculate_fdr, gamma_fdr,
+from MNovo.cct.cct_core.fdr import (FDRContractError, calculate_fdr, gamma_fdr,
     complete_score_group_curve, accept_complete_score_groups, apply_frozen_gamma)
-from MNovo.cct_scoring import peptide_candidates, load_pairs, select_psms
+from MNovo.cct.cct_scoring import peptide_candidates, load_pairs, select_psms
 
 
 def curve(sides, labels, scores=None):
@@ -130,7 +130,7 @@ def test_unknown_labels_do_not_change_application_cutoff(tmp_path):
 
 def test_profile_mismatch_fails_before_inference(tmp_path):
     import torch
-    from MNovo.cct_pipeline import SCHEMA, load_profile
+    from MNovo.cct.cct_pipeline import SCHEMA, load_profile
     p = dict(schema=SCHEMA, scope_id="A", runtime_identity={"backbone": "sha", "source_sha256": {"a.py": "old"}},
         threshold_policy="recount_full_cohort_above_calibrated_score_floor",
         psm_q=.05, peptide_q=.05, psm_calibration={"gamma": 1., "score_bounds": [0., 1.]},
@@ -151,8 +151,8 @@ def test_profile_mismatch_fails_before_inference(tmp_path):
 def test_apply_two_levels_with_unknown_truth(tmp_path):
     import torch
     from sklearn.preprocessing import StandardScaler
-    from MNovo.cct_scoring import MLPClassifier, _pack_models
-    from MNovo.cct_pipeline import apply_profile, SCHEMA
+    from MNovo.cct.cct_scoring import MLPClassifier, _pack_models
+    from MNovo.cct.cct_pipeline import apply_profile, SCHEMA
     rows = paired_rows().assign(denovo_label=np.nan)
     cols = sorted(c for c in rows if c.startswith("f_"))
     scaler = StandardScaler().fit(rows[cols].to_numpy())
@@ -172,7 +172,7 @@ def test_apply_two_levels_with_unknown_truth(tmp_path):
 
 
 def test_fit_save_reload_apply_profile_end_to_end(tmp_path):
-    from MNovo.cct_pipeline import fit_profile, load_profile, apply_profile, SCHEMA, _sha256
+    from MNovo.cct.cct_pipeline import fit_profile, load_profile, apply_profile, SCHEMA, _sha256
     rng = np.random.default_rng(31)
     paths = []
     for role_number, role in enumerate(("fit", "cal", "validation")):
@@ -215,7 +215,7 @@ def test_local_gamma_cannot_escape_calibrated_interval():
 
 
 def test_empty_test_scoring_is_valid_zero_discovery():
-    from MNovo.cct_scoring import score_rows
+    from MNovo.cct.cct_scoring import score_rows
     empty = paired_rows().iloc[:0]
     scored = score_rows(empty, [], {})
     target, result, cutoff = select_psms(scored, .05, 1.)
@@ -224,8 +224,8 @@ def test_empty_test_scoring_is_valid_zero_discovery():
 
 def test_full_precision_scaler_and_score_roundtrip():
     from sklearn.preprocessing import StandardScaler
-    from MNovo.cct_pipeline import _unpack
-    from MNovo.cct_scoring import MLPClassifier, _pack_models, score_rows
+    from MNovo.cct.cct_pipeline import _unpack
+    from MNovo.cct.cct_scoring import MLPClassifier, _pack_models, score_rows
     rows = paired_rows()
     cols = sorted(c for c in rows if c.startswith("f_"))
     values = np.random.default_rng(77).normal(size=(200, 33)) * 1e-4 + .123456789

@@ -17,12 +17,12 @@ import pandas as pd
 import torch
 from sklearn.preprocessing import StandardScaler
 
-from MNovo.cct_core.fdr import FDRContractError, calculate_fdr, gamma_fdr
-from MNovo.cct_scoring import (
+from MNovo.cct.cct_core.fdr import FDRContractError, calculate_fdr, gamma_fdr
+from MNovo.cct.cct_scoring import (
     MLPClassifier, _pack_models, _sha256, load_pairs,
     peptide_candidates, score_rows, select_psms,
 )
-from MNovo.cct_training import train_fixed
+from MNovo.cct.cct_training import train_fixed
 
 SCHEMA = "mnovo-cct-fixed-roles-v2"
 IDENTITY_POLICY = "full_modified_sequence_IL_merged_inherited_adapter"

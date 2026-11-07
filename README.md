@@ -20,7 +20,7 @@ consumes paired evidence; it does not choose the sequence.
 | `MNovo/` | CLI, input accounting, inference, final Score and evaluation |
 | `MNovo/components/`, `MNovo/denovo/` | Transformer layers, spectrum data, decoding and backbone training |
 | `MNovo/ranker/` | Candidate features, length and fragment evidence, and routing |
-| `MNovo/cct_*.py`, `MNovo/cct_core/` | Paired features, fixed-role fitting, calibration and filtering |
+| `MNovo/cct/cct_*.py`, `MNovo/cct/cct_core/` | Paired features, fixed-role fitting, calibration and filtering |
 | `scripts/` | Checkpoint and label audits, historical downloader and training smoke test |
 | `tests/`, `tests/data/` | Regression tests and synthetic MGF input |
 | `docs/`, `wheels/` | Usage and validation notes; native Linux decoder wheel |

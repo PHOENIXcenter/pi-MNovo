@@ -24,7 +24,7 @@ approximately 48/12/20/20. Physical groups cannot cross roles; predicted peptide
 on different scans may. No implicit resampling occurs.
 
 ```bash
-python -m MNovo.cct_roles --features pairs.csv --manifest roles.tsv --output-dir roles
+python -m MNovo.cct.cct_roles --features pairs.csv --manifest roles.tsv --output-dir roles
 pi-mnovo-fdr --fit roles/train.csv --early-stop roles/early_stop.csv \
   --calibration roles/calibration.csv --output-dir fitted --psm-fdr .05 --peptide-fdr .05
 ```
