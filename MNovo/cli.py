@@ -138,7 +138,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--model", dest="task", required=True, choices=("denovo", "eval", "train"))
     parser.add_argument("--config", required=True, help="Path to the task YAML.")
     parser.add_argument("--input", required=True, help="MGF file, directory, glob or LMDB.")
-    parser.add_argument("--output", required=True)
+    parser.add_argument("--output", help="Output TSV (training: run directory). Defaults to a new run under the code root's outputs/.")
     args = parser.parse_args()
     config = yaml.safe_load(Path(args.config).read_text(encoding="utf-8"))
     if not isinstance(config, dict):
@@ -175,6 +175,15 @@ def parse_args() -> argparse.Namespace:
     args.lmdb = args.input if args.input_format == "lmdb" else None
     if args.lmdb:
         args.input = None
+    if args.output is None:
+        root = Path(__file__).resolve().parents[1] / "outputs"
+        try:
+            root.mkdir(exist_ok=True)
+            run = Path(tempfile.mkdtemp(prefix=f"{args.task}-", dir=root))
+        except OSError as error:
+            parser.error(f"Cannot create output under {root}: {error}. Specify --output with a writable path.")
+        args.output = str(run if args.task == "train" else run / "predictions.tsv")
+        print(f"Output: {args.output}", file=sys.stderr, flush=True)
     return args
 
 

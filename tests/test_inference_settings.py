@@ -1,4 +1,5 @@
 import json
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -8,6 +9,24 @@ from MNovo.cli import apply_config
 from MNovo.cct.cct_pipeline import runtime_identity
 from MNovo.inference.config import resolve_settings
 from MNovo.inference.runtime import RuntimeOptions
+
+
+@pytest.mark.parametrize("task", ["denovo", "eval", "train"])
+def test_optional_output_under_code_root(tmp_path, monkeypatch, task):
+    from MNovo import cli
+    monkeypatch.setattr(cli, "__file__", str(tmp_path / "MNovo/cli.py"))
+    cfg = tmp_path / "config.yaml"
+    cfg.write_text("runtime: {model_dir: weights.ckpt}")
+    argv = ["pi-mnovo", "--model", task, "--config", str(cfg), "--input", "sample.mgf"]
+    monkeypatch.setattr("sys.argv", argv + ["--output", "custom"])
+    assert cli.parse_args().output == "custom"
+    assert not (tmp_path / "outputs").exists()
+    monkeypatch.setattr("sys.argv", argv)
+    first, second = (Path(cli.parse_args().output) for _ in range(2))
+    assert first != second
+    run = first if task == "train" else first.parent
+    assert run.parent == tmp_path / "outputs" and run.is_dir()
+    assert task == "train" or first.name == "predictions.tsv"
 
 
 def test_public_cli_requires_config_and_rejects_removed_flags(monkeypatch):

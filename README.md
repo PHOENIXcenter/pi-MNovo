@@ -2,8 +2,11 @@
 
 CTC peptide sequencing with Beam20 + PMC, three experts and an observable router.
 
-The main command takes four required arguments: `--model` (denovo, eval or train),
-`--config`, `--input` and `--output`. For prediction or evaluation, copy
+The main command requires `--model` (denovo, eval or train), `--config` and
+`--input`. Optional `--output` sets the prediction TSV or training run directory.
+When omitted, a new run directory is created under `outputs/` beside the
+`MNovo/` source directory. The command prints the destination; prediction and
+evaluation write `predictions.tsv` inside that directory. For prediction or evaluation, copy
 [MNovo/config.yaml](MNovo/config.yaml) and set `runtime.model_dir` to the downloaded
 checkpoint. The file lists all checkpoint configuration fields, including the
 ordered residue dictionary, plus runtime settings. Change `n_beams: 20` to try
@@ -95,7 +98,7 @@ Input-audit sidecars reconcile original, accepted and rejected spectra.
 ## Optional FDR
 
 Set `runtime.fdr_mode: "on"`, `runtime.cct_scope_id` and `runtime.cct_profile`
-in your YAML, then run the same four-argument prediction command.
+in your YAML, then run the same prediction command.
 
 FDR is off by default. A scope-matched calibrated profile is required.
 Changes to CCT feature definitions or scoring algorithms may invalidate a fitted

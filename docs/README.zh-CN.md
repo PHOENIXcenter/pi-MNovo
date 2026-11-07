@@ -22,8 +22,10 @@ pi-mnovo --help
 预测和评估共用一份显式指定的配置。Beam 宽度（`n_beams: 20`）、PMC、谱峰过滤、残基字典、设备和 FDR 设置均在 YAML 中。预训练权重要求残基及修饰的顺序和质量与训练一致。
 
 ```bash
-pi-mnovo --model denovo --config MNovo/config.yaml --input sample.mgf --output predictions.tsv
+pi-mnovo --model denovo --config MNovo/config.yaml --input sample.mgf
 ```
+
+省略 `--output` 时，程序会在代码根目录（与 `MNovo/` 同级）的 `outputs/` 下新建运行目录，并打印路径。预测和评估写入其中的 `predictions.tsv`；训练使用该目录保存结果。也可以传 `--output` 指定其他位置。
 
 `Score` 是最终序列的置信分数，不是 q 值。若开启 CCT 过滤，还需要与样本范围、模型和实现相匹配的已拟合 profile；仅更换检查点不能代替这一步。详细参数见 [FDR 工作流](../CCT_MODULE.md)。
 
