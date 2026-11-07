@@ -12,13 +12,13 @@ import yaml
 
 from MNovo.ctc import required_steps, validate_targets
 from MNovo.evaluation import tokens
-from MNovo.selection import validate_selection
-from MNovo.candidate_generation import ctc_nll_for_batch, pmc_candidates
+from MNovo.inference.selection import validate_selection
+from MNovo.inference.candidate_generation import ctc_nll_for_batch, pmc_candidates
 from MNovo.denovo.metric_counts import CountRatio, match_counts
 from MNovo.denovo.data import DeNovoDataModule
 from MNovo.denovo import mass_con
 from MNovo.pmc_schema import PMC_RESIDUES, validate_pmc_schema
-from MNovo.runtime import MNovoRuntime, RuntimeOptions, _selected
+from MNovo.inference.runtime import MNovoRuntime, RuntimeOptions, _selected
 from MNovo.release import resolve_model_release, REQUIRED
 
 
@@ -287,7 +287,7 @@ def test_mixed_empty_pool_preserves_indices_and_only_ranks_valid_rows(monkeypatc
     def score_inputs(rows, selected, evidence, log_probs, blank):
         assert len(rows) == 1 and len(selected) == 1 and log_probs.shape[0] == 1
         return ()
-    monkeypatch.setattr('MNovo.runtime.build_score_inputs', score_inputs)
+    monkeypatch.setattr('MNovo.inference.runtime.build_score_inputs', score_inputs)
     def score(memory):
         assert memory.shape[0] == 1
         return torch.tensor([0.8])

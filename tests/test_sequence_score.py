@@ -5,7 +5,7 @@ from pathlib import Path
 
 import torch
 
-from MNovo.sequence_score import ctc_viterbi_features, local_summaries
+from MNovo.inference.sequence_score import ctc_viterbi_features, local_summaries
 
 
 def test_viterbi_features_finite_and_length_mask():
@@ -19,7 +19,7 @@ def test_viterbi_features_finite_and_length_mask():
 
 
 def test_score_module_does_not_filter_or_load_fdr_thresholds():
-    from MNovo import sequence_score
+    from MNovo.inference import sequence_score
     source = Path(sequence_score.__file__).read_text()
     assert 'pep_qvalues' not in source
     assert 'pep_thresholds' not in source
@@ -27,7 +27,7 @@ def test_score_module_does_not_filter_or_load_fdr_thresholds():
 
 
 def test_saved_scoring_has_no_decoding_or_selection_call():
-    from MNovo import runtime
+    from MNovo.inference import runtime
     tree = ast.parse(Path(runtime.__file__).read_text())
     method = next(n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef)
                   and n.name == 'score_saved_batch')

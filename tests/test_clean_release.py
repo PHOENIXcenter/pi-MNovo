@@ -3,7 +3,7 @@
 import numpy as np
 import pandas as pd
 import pytest
-from MNovo.multi_gpu import batch_shards, selected_devices, merge_predictions
+from MNovo.inference.multi_gpu import batch_shards, selected_devices, merge_predictions
 from MNovo.cct.cct_pipeline import validate_roles, known_rows
 from MNovo.cct.cct_scoring import select_psms
 

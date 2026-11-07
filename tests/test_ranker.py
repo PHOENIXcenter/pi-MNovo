@@ -9,7 +9,7 @@ from MNovo.ranker.features import (
     isotope_aware_mass_features,
 )
 from MNovo.ranker.model import ResidualCandidateRanker
-from MNovo.candidate_generation import merge_pmc_candidate
+from MNovo.inference.candidate_generation import merge_pmc_candidate
 
 
 def test_feature_schema_and_ranker_shapes():

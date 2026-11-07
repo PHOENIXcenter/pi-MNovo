@@ -56,15 +56,15 @@ from MNovo.ranker.observable_router import (
     ObservablePathRouter,
     apply_frozen_threshold,
 )
-from MNovo.candidate_generation import (
+from MNovo.inference.candidate_generation import (
     ctc_nll_for_batch,
     merge_pmc_candidate,
     model_parameters,
     pmc_candidates,
 )
 from MNovo.router_schema import ROUTER_FEATURE_NAMES
-from MNovo.selection import validate_selection
-from MNovo.sequence_score import SequenceScoreRuntime, build_score_inputs
+from MNovo.inference.selection import validate_selection
+from MNovo.inference.sequence_score import SequenceScoreRuntime, build_score_inputs
 
 
 @dataclass(frozen=True)

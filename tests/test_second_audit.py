@@ -11,8 +11,8 @@ import torch
 import yaml
 
 from MNovo import cli
-from MNovo import runtime as runtime_module
-from MNovo.runtime import MNovoRuntime, RuntimeOptions, _selected
+from MNovo.inference import runtime as runtime_module
+from MNovo.inference.runtime import MNovoRuntime, RuntimeOptions, _selected
 
 
 def test_single_candidate_margin_is_finite_independent_of_batch_padding():
@@ -231,7 +231,7 @@ def test_runtime_only_override_keeps_frozen_evaluation_config(tmp_path):
 def test_wrong_or_extra_prediction_rows_preserve_previous_output(
     tmp_path, monkeypatch, wrong_indices
 ):
-    from MNovo.runtime import Prediction
+    from MNovo.inference.runtime import Prediction
 
     stream = [Prediction(index, "AK", 0.5, "r1") for index in wrong_indices]
     fake = SimpleNamespace(

@@ -27,8 +27,8 @@ from MNovo.input import (
 )
 from MNovo.evaluation import evaluate_predictions, write_metrics_state
 from MNovo.release import resolve_model_release
-from MNovo.runtime import MNovoRuntime, RuntimeOptions
-from MNovo.selection import validate_selection
+from MNovo.inference.runtime import MNovoRuntime, RuntimeOptions
+from MNovo.inference.selection import validate_selection
 from MNovo.input_audit import InputAudit
 
 DEFAULT_RELEASE = Path("models/pi-MNovo-v0.1.0.ckpt")
@@ -576,7 +576,7 @@ def main() -> None:
         with context as (lmdb, input_files, total_spectra):
             phase = "prediction"
             try:
-                from MNovo.multi_gpu import run_selected_devices
+                from MNovo.inference.multi_gpu import run_selected_devices
                 predicted = run_selected_devices(args, lmdb, input_files, total_spectra)
             except Exception:
                 if audit:
