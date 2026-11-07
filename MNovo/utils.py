@@ -1,3 +1,5 @@
+# Shared argument, worker-count and training-log utilities.
+# 共享参数检查、worker 数量及训练日志辅助函数。
 """Small utility functions"""
 
 import os

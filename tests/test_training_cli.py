@@ -1,3 +1,5 @@
+# Exercise CLI dispatch without conflating it with model accuracy.
+# 检查训练命令分派，不据此评价模型准确率。
 from pathlib import Path
 
 from click.testing import CliRunner
@@ -15,7 +17,11 @@ def test_training_outputs_are_scoped_to_run_directory(
 
     monkeypatch.setattr(backbone_cli.backbone_runner, "train", fake_train)
     run_dir = tmp_path / "run"
-    config = Path(backbone_cli.__file__).with_name("config.yaml")
+    config = (
+        Path(backbone_cli.__file__).parent.parent
+        / "docs"
+        / "training_config.example.yaml"
+    )
     result = CliRunner().invoke(
         backbone_cli.main,
         [

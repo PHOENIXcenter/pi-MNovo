@@ -1,3 +1,5 @@
+# Spectrum and peptide transformers share the decoder vocabulary contract.
+# 谱图与肽段的 Transformer 模块须与解码词表约定一致。
 """Base Transformer models for working with mass spectra and peptides"""
 
 import re

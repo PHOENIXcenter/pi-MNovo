@@ -1,3 +1,5 @@
+# Track MGF blocks rejected before sequence prediction.
+# 在预测之前记录被拒绝的 MGF 谱块。
 """Account for every MGF block, including inputs that cannot be predicted."""
 
 import csv

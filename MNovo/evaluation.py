@@ -1,3 +1,5 @@
+# Match predictions to references and report counts with their denominators.
+# 按参考序列评价预测，并记录计算指标所用的计数和分母。
 """Evaluate fused pi-MNovo predictions with mass-aware sequence metrics."""
 
 from __future__ import annotations
@@ -32,6 +34,10 @@ def tokens(sequence: str | None) -> list[str]:
     }
     for old, new in replacements.items():
         value = value.replace(old, new)
+    terminal = re.match(r"^(?:\[(?:[+-][0-9.]+)+\])+", value)
+    if terminal:
+        prefix = terminal.group().replace("[", "").replace("]", "")
+        value = prefix + value[terminal.end():]
     value = re.sub(r"([A-Z])\[([+-][0-9.]+)\]", r"\1\2", value)
     value = value.replace("I", "L")
     result = []

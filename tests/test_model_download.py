@@ -1,3 +1,5 @@
+# Simulate a failed download without replacing a valid checkpoint.
+# 模拟下载失败，验证已有权重不会被损坏的文件覆盖。
 import hashlib
 import sys
 from pathlib import Path

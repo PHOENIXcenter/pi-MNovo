@@ -1,3 +1,5 @@
+# Adjacent repeated labels need an intervening blank in a CTC path.
+# CTC 路径中相邻重复标签需要由 blank 隔开。
 """CTC target feasibility, independent of the decoder implementation."""
 
 

@@ -1,3 +1,5 @@
+# CUDA mass-constrained decoding uses the checkpoint's discretization and token layout.
+# CUDA 质量约束解码依赖既定离散网格和 token 排列，不可随意更改常数。
 try:
     import cupy as cp
 except ImportError:

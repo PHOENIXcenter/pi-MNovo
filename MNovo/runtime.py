@@ -1,8 +1,11 @@
+# From one batch of spectra to selected sequences, routes and final confidence.
+# 从一批谱图得到入选序列、路由和最终置信分数。
 """Fused, cache-free inference runtime for the MNovo release model."""
 
 from __future__ import annotations
 
 import math
+from contextlib import nullcontext
 import os
 import site
 import ctypes
@@ -61,6 +64,7 @@ from MNovo.candidate_generation import (
 )
 from MNovo.router_schema import ROUTER_FEATURE_NAMES
 from MNovo.selection import validate_selection
+from MNovo.sequence_score import SequenceScoreRuntime, build_score_inputs
 
 
 @dataclass(frozen=True)
@@ -69,7 +73,7 @@ class RuntimeOptions:
     batch_size: int = 96
     n_workers: int = 16
     ctc_processes: int = 16
-    initial_beam: int = 5
+    initial_beam: int | None = None
     cutoff_top_n: int = 30
     precision: str = "bf16"
     length_alpha: float = 0.7
@@ -134,14 +138,16 @@ class MNovoRuntime:
         model_dir: str | Path,
         options: RuntimeOptions | None = None,
         device: str = "auto",
+        fdr_mode: str = "off",
     ) -> None:
         self.root = Path(model_dir)
         self.components = self.root / "components"
         self.options = options or RuntimeOptions()
+        if fdr_mode != "off":
+            raise ValueError("Runtime performs sequencing only; use CLI --fdr on for post-processing.")
+        self.fdr_mode = fdr_mode
         if self.options.mode != "fast":
             raise ValueError("The release runtime supports only mode='fast'.")
-        if self.options.initial_beam != 5:
-            raise ValueError("The release runtime is frozen to beam width 5.")
         if self.options.candidate_mode not in ("union", "beam-only"):
             raise ValueError("candidate_mode must be union or beam-only.")
         self.candidate_statistics = dict(
@@ -154,18 +160,27 @@ class MNovoRuntime:
             raise RuntimeError(
                 "PMC union requires CUDA. Use --candidate-mode beam-only for diagnostics."
             )
+        self.config = yaml.safe_load(
+            (self.root / "config" / "inference.yaml").read_text(encoding="utf-8")
+        )
+        self.beam_width = int(self.config["n_beams"])
+        if (
+            self.options.initial_beam is not None
+            and int(self.options.initial_beam) != self.beam_width
+        ):
+            raise ValueError(
+                "The release runtime is frozen to beam width "
+                f"{self.beam_width}."
+            )
         self.device = torch.device(
             "cuda"
             if device == "auto" and torch.cuda.is_available()
             else ("cpu" if device == "auto" else device)
         )
-        self.config = yaml.safe_load(
-            (self.root / "config" / "inference.yaml").read_text(encoding="utf-8")
-        )
         if self.options.candidate_mode == "union" and not self.config["PMC_enable"]:
             raise ValueError("Union mode requires PMC_enable=true.")
         args = SimpleNamespace(
-            beam_size=self.options.initial_beam,
+            beam_size=self.beam_width,
             cutoff_top_n=self.options.cutoff_top_n,
             ctc_processes=self.options.ctc_processes,
         )
@@ -179,7 +194,7 @@ class MNovoRuntime:
         self.decoder5 = CTCBeamSearchDecoder(
             self.backbone.decoder,
             {
-                "beam_width": self.options.initial_beam,
+                "beam_width": self.beam_width,
                 "cutoff_top_n": self.options.cutoff_top_n,
                 "cutoff_prob": 1.0,
                 "num_processes": self.options.ctc_processes,
@@ -190,6 +205,9 @@ class MNovoRuntime:
         self.r3, self.r3_checkpoint = self._load_ranker("r3_fragment_expert.pt")
         self.length_predictor, self.length_checkpoint = self._load_length()
         self.fast_router, self.fast_router_checkpoint = self._load_fast_router()
+        # Scoring is independent of CCT filtering and never changes selection.
+        with torch.random.fork_rng(devices=[]):
+            self.sequence_score = SequenceScoreRuntime(self.components, self.device)
         if self.fast_router_checkpoint.get("feature_names") != ROUTER_FEATURE_NAMES:
             raise RuntimeError(
                 "This model uses an obsolete router schema. The release "
@@ -362,6 +380,8 @@ class MNovoRuntime:
     ) -> dict:
         batch = len(rows)
         width = max(max(len(row["texts"]), 1) for row in rows)
+        # Rows are spectra; columns are candidate slots. Padding must not become a candidate.
+        # 前两维是谱图和候选槽位；末维是三个基础特征，填充槽必须由 mask 排除。
         core = torch.zeros((batch, width, 3), dtype=torch.float32)
         mask = torch.zeros((batch, width), dtype=torch.bool)
         length = torch.ones((batch, width), dtype=torch.float32)
@@ -410,19 +430,24 @@ class MNovoRuntime:
         return scores, index, margin
 
     def _r1_confidence(self, score: torch.Tensor) -> torch.Tensor:
-        calibration = self.r1_checkpoint["ranker_calibrator"]
+        calibration = self.r1_checkpoint.get("ranker_calibrator")
+        if calibration is None:
+            # The frozen sequence generator intentionally precedes confidence/FDR.
+            return torch.full_like(score, float("nan"))
         return calibrated_confidence(
             score,
             float(calibration["scale"]),
             float(calibration["bias"]),
         )
 
-    def _observable_select(
+    def _observable_select_with_evidence(
         self,
         data: dict,
         spectra: torch.Tensor,
-    ) -> tuple[torch.Tensor, torch.Tensor, list[str]]:
+    ) -> tuple[torch.Tensor, torch.Tensor, list[str], dict[str, torch.Tensor]]:
         """Reproduce the frozen 36-feature Benchmark10 selection online."""
+        # R1 scores the shared pool. R2/R3 add evidence; neither generates new sequences.
+        # R1 对同一候选池打分；R2/R3 分别补充长度和碎片证据，不再生成序列。
         r1_input = torch.cat([data["core"], data["mass0"]], dim=-1)
         r1_scores, r1_index, r1_margin = self._rank(self.r1, r1_input, data["mask"])
         length_logits = self.length_predictor(data["embedding"], data["precursor"])
@@ -452,6 +477,8 @@ class MNovoRuntime:
         )
         r3_scores, r3_index, r3_margin = self._rank(self.r3, r3_input, data["mask"])
 
+        # Keep expert IDs in checkpoint order when gathering the three selected candidates.
+        # 按训练时的专家顺序取回三个候选；不能按专家得分重排列。
         indices = [r1_index, r2_index, r3_index]
         scores = [r1_scores, r2_scores, r3_scores]
         margins = [r1_margin, r2_margin, r3_margin]
@@ -521,16 +548,25 @@ class MNovoRuntime:
         normalized = (
             features - self.fast_router_checkpoint["feature_mean"].to(self.device)
         ) / self.fast_router_checkpoint["feature_std"].to(self.device)
+        route_probs = torch.zeros(
+            (data["mask"].size(0), 3), dtype=torch.float32, device=self.device
+        )
+        route_probs[:, 0] = 1.0
+        advantage = torch.full(
+            (data["mask"].size(0),), -1.0, dtype=torch.float32, device=self.device
+        )
         route = torch.zeros(data["mask"].size(0), dtype=torch.long, device=self.device)
         ambiguous = data["mask"].sum(dim=1) > 1
         if ambiguous.any():
             if not torch.isfinite(normalized[ambiguous]).all():
                 raise FloatingPointError("Non-finite observable-router features.")
             logits = self.fast_router(normalized[ambiguous])
-            selected_routes, _probability, _advantage = apply_frozen_threshold(
+            selected_routes, probabilities, selected_advantage = apply_frozen_threshold(
                 logits, float(self.fast_router_checkpoint["frozen_threshold"])
             )
             route[ambiguous] = selected_routes
+            route_probs[ambiguous] = probabilities
+            advantage[ambiguous] = selected_advantage
         path_index = torch.stack(indices, dim=1)
         selected = path_index[torch.arange(route.numel(), device=self.device), route]
         route_names = ["r1", "r2_long", "r3_fragment"]
@@ -538,7 +574,36 @@ class MNovoRuntime:
         # R2/R3 have no independent calibrator. Score every routed peptide on
         # the common R1 scale so exported confidence remains comparable.
         confidence = self._r1_confidence(_gather(r1_scores, selected))
+        evidence = {
+            "router_features": features,
+            "route_probabilities": route_probs,
+            "route_advantage": advantage,
+            "selected_core": data["core"][
+                torch.arange(selected.numel(), device=self.device), selected
+            ],
+            "selected_fragment": fragment[
+                torch.arange(selected.numel(), device=self.device), selected
+            ],
+            "selected_mass0": data["mass0"][
+                torch.arange(selected.numel(), device=self.device), selected
+            ],
+            "selected_is_pmc": data["is_pmc"][
+                torch.arange(selected.numel(), device=self.device), selected
+            ].float(),
+        }
+        return selected, confidence, names, evidence
+
+    def _observable_select(
+        self,
+        data: dict,
+        spectra: torch.Tensor,
+    ) -> tuple[torch.Tensor, torch.Tensor, list[str]]:
+        selected, confidence, names, _evidence = self._observable_select_with_evidence(
+            data, spectra
+        )
         return selected, confidence, names
+
+
 
     def _fragment_tensor(
         self,
@@ -571,15 +636,68 @@ class MNovoRuntime:
                 )
         return features.to(self.device)
 
+    def score_saved_batch(self, spectra, precursors, dataset_indices, traces):
+        """Score fixed trace predictions without decoding, ranking, or routing."""
+        if len(traces) != len(dataset_indices):
+            raise ValueError("Saved trace batch size mismatch")
+        rows, evidence_rows, valid = [], [], []
+        result = [Prediction(int(i), "", 0.0, "none", "no_valid_candidate")
+                  for i in dataset_indices]
+        for pos, (index, trace) in enumerate(zip(dataset_indices, traces)):
+            prediction = trace['prediction']
+            if int(index) != prediction['dataset_index']:
+                raise ValueError("Saved trace dataset_index mismatch")
+            result[pos] = Prediction(int(index), prediction['peptide'], 0.0,
+                                     prediction['route'], prediction['status'])
+            if not prediction['peptide']:
+                continue
+            selected = trace['selected_index']
+            peptide = trace['candidates']['texts'][selected]
+            if peptide != prediction['peptide']:
+                raise ValueError("Saved selected candidate differs from final peptide")
+            tokens = self.backbone.decoder.tokenize(peptide).tolist()
+            if self._peptide_text(tokens) != peptide:
+                raise ValueError("Saved peptide tokenization is not exactly reversible")
+            rows.append({'tokens': [tokens], 'nll': [trace['candidates']['nll'][selected]]})
+            evidence_rows.append(trace['evidence'])
+            valid.append(pos)
+        if not valid:
+            return result
+        keys = ('router_features', 'route_probabilities', 'route_advantage',
+                'selected_core', 'selected_fragment', 'selected_mass0', 'selected_is_pmc')
+        evidence = {k: torch.tensor([r[k] for r in evidence_rows], device=self.device)
+                    for k in keys}
+        autocast = self.options.precision == 'bf16' and self.device.type == 'cuda'
+        with torch.inference_mode(), torch.autocast(
+                device_type=self.device.type, dtype=torch.bfloat16, enabled=autocast):
+            # Preserve the original complete batch context, including rejected rows.
+            memory, mask = self.backbone.encoder(spectra.to(self.device))
+            logits, _, _ = self.backbone.decoder(None, precursors.to(self.device), memory, mask)
+            inputs = build_score_inputs(rows, torch.zeros(len(valid), dtype=torch.long,
+                device=self.device), evidence, F.log_softmax(logits, -1)[valid],
+                int(self.backbone.decoder.get_blank_idx()))
+            scores = self.sequence_score.score(memory[valid, 0], *inputs)
+        for pos, score in zip(valid, scores.cpu().tolist()):
+            result[pos].confidence = float(score)
+        return result
+
     def predict_batch(
         self,
         spectra: torch.Tensor,
         precursors: torch.Tensor,
         dataset_indices: torch.Tensor,
+        truth: np.ndarray | None = None,
     ) -> list[Prediction]:
         spectra_device = spectra.to(self.device, non_blocking=True)
         precursors_device = precursors.to(self.device, non_blocking=True)
         autocast = self.options.precision == "bf16" and self.device.type == "cuda"
+        cct_exporter = getattr(self, "cct_exporter", None)
+        if cct_exporter is not None:
+            from MNovo.cct_adapter import AttentionCapture
+        attention_context = (
+            AttentionCapture(self.backbone.decoder.layers)
+            if cct_exporter is not None else nullcontext()
+        )
         with (
             torch.inference_mode(),
             torch.autocast(
@@ -587,6 +705,7 @@ class MNovoRuntime:
                 dtype=torch.bfloat16,
                 enabled=autocast,
             ),
+            attention_context as captured,
         ):
             memory, memory_mask = self.backbone.encoder(spectra_device)
             logits, _, _ = self.backbone.decoder(
@@ -615,9 +734,16 @@ class MNovoRuntime:
                     precursors_device[valid],
                     memory[valid, 0],
                 )
-                selected, confidence, routes = self._observable_select(
+                selected, _unused_confidence, routes, evidence = self._observable_select_with_evidence(
                     data, spectra[valid]
                 )
+                score_inputs = build_score_inputs(
+                    [rows[index] for index in valid], selected, evidence,
+                    log_probs[valid], int(self.backbone.decoder.get_blank_idx()),
+                )
+                # Score the routed candidate, not the highest confidence among all candidates.
+                # 此时路由已经完成；Score 描述入选序列，不再用它重排候选。
+                confidence = self.sequence_score.score(memory[valid, 0], *score_inputs)
                 for position, candidate_index in enumerate(selected.cpu().tolist()):
                     row_index = valid[position]
                     output[row_index] = Prediction(
@@ -626,6 +752,16 @@ class MNovoRuntime:
                         float(confidence[position]),
                         routes[position],
                     )
+                if cct_exporter is not None:
+                    cct_exporter.collect(
+                        output, rows, valid, selected.detach().cpu().tolist(),
+                        captured.attention.detach().cpu().numpy(),
+                        log_probs.detach().float().cpu().numpy(),
+                        spectra.detach().cpu().numpy(),
+                        precursors.detach().cpu().numpy(), truth,
+                    )
+            elif cct_exporter is not None:
+                cct_exporter.collect_empty(output, truth)
         return output
 
     def predict_lmdb(
@@ -659,4 +795,6 @@ class MNovoRuntime:
             collate_fn=collate_indexed,
         )
         for spectra, precursors, _truth, dataset_indices in loader:
-            yield from self.predict_batch(spectra, precursors, dataset_indices)
+            if getattr(self, "cct_exporter", None) is not None:
+                _truth = [spectrum_index.reference_sequence(i) for i in dataset_indices]
+            yield from self.predict_batch(spectra, precursors, dataset_indices, _truth)

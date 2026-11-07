@@ -1,3 +1,5 @@
+# Audit training labels before invoking the trainer.
+# 在进入 Trainer 前核对标注、长度和 CTC 可对齐性。
 """Audit a TSV of role, sequence, source, run before training; never filter test."""
 
 import argparse

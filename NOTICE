@@ -1,4 +1,4 @@
-pi-MNovo includes code derived from the MIT-licensed Casanovo/PrimeNovo codebase.
+pi-MNovo is based on pi-PrimeNovo (https://github.com/PHOENIXcenter/pi-PrimeNovo).
 The original copyright and permission notice are retained in LICENSE.
 
 The release runtime uses third-party packages under their respective licenses,

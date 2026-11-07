@@ -1,3 +1,5 @@
+# Test candidate features and residual ranking shapes.
+# 检查候选特征及残差排序器的形状契约。
 import torch
 import pytest
 

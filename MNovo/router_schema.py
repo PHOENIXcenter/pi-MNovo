@@ -1,3 +1,5 @@
+# Feature order is part of the frozen router input contract.
+# 路由特征的顺序属于冻结模型输入契约。
 """Frozen observable-router feature schema used by the release model."""
 
 ROUTER_FEATURE_NAMES = [

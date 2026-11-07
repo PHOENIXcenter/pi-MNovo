@@ -1,3 +1,5 @@
+# Resolve MGF inputs and expose indexed spectra to the inference runtime.
+# 解析 MGF 输入，供推理按索引取谱。
 """Resolve user-facing MGF inputs and materialize them for MNovo inference."""
 
 from __future__ import annotations

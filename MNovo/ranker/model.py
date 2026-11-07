@@ -1,3 +1,5 @@
+# Residual candidate ranking adjusts candidate scores, not token logits.
+# 残差排序作用于候选评分，不修改 token logits。
 """Candidate-level residual ranker."""
 
 from __future__ import annotations

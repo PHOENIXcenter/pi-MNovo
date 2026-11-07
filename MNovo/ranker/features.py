@@ -1,3 +1,5 @@
+# Build candidate and isotope-aware mass features in the frozen ordering.
+# 按既定顺序构造候选特征及同位素质量特征。
 """Candidate features and confidence mapping used by release inference."""
 
 from __future__ import annotations

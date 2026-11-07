@@ -1,3 +1,5 @@
+# Compare residue masses in peptide predictions and references.
+# 按残基质量对照预测肽段和参考肽段。
 """Methods to evaluate peptide-spectrum predictions."""
 
 import re

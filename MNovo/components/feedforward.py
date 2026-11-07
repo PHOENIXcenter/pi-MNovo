@@ -1,3 +1,5 @@
+# Build the feed-forward layers consumed by the model.
+# 构建模型使用的前馈层；层排列属于权重结构。
 """A flexible feed-forward neural network."""
 
 import torch

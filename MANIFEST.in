@@ -1,5 +1,10 @@
-include environment.yml requirements*.txt MODEL_CARD.md CITATION.cff
+include environment.yml requirements*.txt MODEL_CARD.md CITATION.cff CCT_MODULE.md
 recursive-include scripts *.py
-recursive-include docs *.md *.json
+recursive-include docs *.md *.json *.yaml
+recursive-include docs *.png
 recursive-include tests *.py *.mgf
 recursive-include wheels *.whl
+prune .idea
+prune .vscode
+prune outputs
+global-exclude *.py[cod] *.ckpt *.pt *.pth *.partial

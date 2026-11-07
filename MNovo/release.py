@@ -1,3 +1,5 @@
+# Verify the unified checkpoint and its cached component files before use.
+# 检查统一权重及解包后的组件，避免错误使用已有缓存。
 """Verify every cached byte; publish extraction only after complete validation."""
 
 from __future__ import annotations
@@ -42,6 +44,7 @@ INFERENCE_KEYS = {
     "max_mz",
     "min_intensity",
     "remove_precursor_tol",
+    "n_beams",
 }
 
 
@@ -90,7 +93,7 @@ def _verify_directory(root, expected=None):
     if not marker.is_file() or marker.is_symlink():
         raise ValueError("Missing verified runtime cache marker.")
     recorded = json.loads(marker.read_text(encoding="utf-8"))
-    if recorded.get("cache_schema") != 2:
+    if recorded.get("cache_schema") not in (2, 3):
         raise ValueError(
             "Legacy cache cannot be trusted; reload the unified checkpoint to regenerate it."
         )
@@ -130,6 +133,10 @@ def resolve_model_release(
     checkpoint = torch.load(source, map_location="cpu", weights_only=True)
     if checkpoint.get("format") != "mnovo-unified-sequence-checkpoint":
         raise ValueError(f"Unsupported MNovo checkpoint format: {source}")
+    # Version-2 fixtures and the earliest public package omitted this field.
+    format_version = int(checkpoint.get("format_version", 2))
+    if format_version not in (2, 3):
+        raise ValueError(f"Unsupported MNovo checkpoint version: {format_version}")
     manifest = checkpoint["manifest"]
     expected = _validate_manifest(manifest)
     payloads = checkpoint["component_payloads"]
@@ -144,7 +151,8 @@ def resolve_model_release(
         else Path.home() / ".cache" / "mnovo" / "releases"
     )
     parent.mkdir(parents=True, exist_ok=True)
-    root = parent / (_file_sha256(source) + "-cache2")
+    cache_schema = 3
+    root = parent / (_file_sha256(source) + f"-cache{cache_schema}")
     if root.exists():
         return _verify_directory(root, expected)
     with tempfile.TemporaryDirectory(prefix=".extract-", dir=parent) as staging:
@@ -159,7 +167,7 @@ def resolve_model_release(
         (staged / "verified.json").write_text(
             json.dumps(
                 {
-                    "cache_schema": 2,
+                    "cache_schema": cache_schema,
                     "manifest": manifest,
                     "source_sha256": _file_sha256(source),
                 },

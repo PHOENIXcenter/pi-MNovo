@@ -3,6 +3,8 @@
 # This source code is licensed under the MIT license found in the
 # LICENSE file in the root directory of this source tree.
 
+# Keep beam candidates and scores aligned when masking padding.
+# 屏蔽填充位置时保持 beam 候选与分数一一对应。
 import logging
 
 import torch
@@ -73,6 +75,8 @@ class CTCBeamSearchDecoder(CTCDecoderBase):
         beam_results, beam_scores, _timesteps, _out_lens = self._decode_raw(
             probabilities
         )
+        # Keep the beam dimension: downstream reranking needs alternatives, not only top-1.
+        # 保留 beam 维度，后续排序需要备选序列而不只是第一名。
         return beam_results, beam_scores
 
     def decode(self, log_prob: TensorType, **kwargs) -> List[List[int]]:

@@ -1,3 +1,5 @@
+# Compare candidate lengths with spectrum-derived length evidence.
+# 将候选肽长与谱图提供的长度证据进行比较。
 """Spectrum-conditioned peptide-length prediction."""
 
 from __future__ import annotations

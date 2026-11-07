@@ -1,3 +1,5 @@
+# Match theoretical fragment ions to observed peaks for candidate ranking.
+# 用候选的理论碎片与观测峰构造排序特征。
 """Candidate-specific b/y fragment-ion evidence."""
 
 from __future__ import annotations
@@ -93,6 +95,8 @@ def fragment_features(
     matched_error = error[matched]
     matched_cuts = cuts[matched]
     matched_series = series[matched]
+    # A peak matched by more than one ion contributes intensity only once here.
+    # 同一实验峰可匹配多个离子，但在这里累加强度时只计一次。
     unique_intensity = intensity[np.unique(matched_peak)].sum()
     n_cuts = max(int(cuts.max()), 1)
     cut_any = np.zeros(n_cuts + 1, dtype=bool)

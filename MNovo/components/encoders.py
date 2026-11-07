@@ -1,3 +1,5 @@
+# Embed mass, peak and position information for the sequence model.
+# 将质量、峰和位置信息编码为网络输入。
 """Simple encoders for input into Transformers and the like."""
 
 import torch

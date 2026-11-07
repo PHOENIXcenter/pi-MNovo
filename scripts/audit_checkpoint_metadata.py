@@ -1,3 +1,5 @@
+# Compare tensor contents separately from metadata strings.
+# 将张量内容与可能包含本机路径的元数据分开审计。
 """Audit nested checkpoint metadata and optionally write a tensor-identical candidate."""
 
 from __future__ import annotations

@@ -1,3 +1,5 @@
+# Combine beam and mass-constrained candidates without duplicating a sequence in a spectrum.
+# 在每张谱图的候选池内合并 beam 与质量约束候选，避免同一序列重复进入。
 """Candidate-generation helpers shared by the fused inference runtime."""
 
 from __future__ import annotations
@@ -119,6 +121,8 @@ def ctc_nll_for_batch(
         device=log_probs.device,
         dtype=torch.long,
     )
+    # Score fixed token lists on their source spectra; the CTC loss here is not a training update.
+    # 对已给定的候选 token 计算各自谱图上的 CTC 代价，此处并非执行训练更新。
     loss = torch.nn.CTCLoss(
         blank=int(model.decoder.get_blank_idx()),
         reduction="none",

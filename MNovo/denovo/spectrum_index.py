@@ -1,3 +1,5 @@
+# Index spectra in LMDB and reopen the handle for the current process.
+# 使用 LMDB 索引谱图，为当前进程维护可用的句柄。
 """LMDB-backed storage for parsed mass spectra."""
 
 from __future__ import annotations
@@ -84,6 +86,8 @@ class LmdbSpectrumIndex:
                     record["title"] = parser.titles[index]
                 elif hasattr(parser, "scan_id"):
                     record["title"] = str(parser.scan_id[index])
+                if hasattr(parser, "reference_sequences"):
+                    record["reference_sequence"] = parser.reference_sequences[index]
                 transaction.put(
                     str(self.n_spectra).encode(),
                     pickle.dumps(record),
@@ -108,6 +112,15 @@ class LmdbSpectrumIndex:
 
     def __len__(self):
         return self.n_spectra
+
+    def reference_sequence(self, index):
+        """Read explicit reference metadata; never treat a TITLE as a label."""
+        self._ensure_db_for_current_process()
+        with self.env.begin() as transaction:
+            payload = transaction.get(str(int(index)).encode())
+        if payload is None:
+            raise IndexError(index)
+        return pickle.loads(payload).get("reference_sequence")
 
     def add_file(self, spectrum_file) -> None:
         parser = self._get_parser(Path(spectrum_file))

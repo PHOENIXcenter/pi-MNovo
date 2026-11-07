@@ -1,3 +1,5 @@
+# Keep training sampling separate from validation and prediction loading.
+# 训练采样与验证、预测的数据加载入口分开。
 import functools
 import logging
 import os
@@ -179,7 +181,7 @@ class DeNovoDataModule(pl.LightningDataModule):
 
         if self.train_dataset is None:
             raise RuntimeError("Training dataset has not been initialized.")
-        requested = self.train_num_samples or 500_000
+        requested = self.train_num_samples or len(self.train_dataset)
         sample_count = min(int(requested), len(self.train_dataset))
         sampler = RandomSampler(
             self.train_dataset,
@@ -230,6 +232,8 @@ def prepare_batch(
         sequences (during training).
     """
     spectra, precursor_mzs, precursor_charges, spectrum_ids = list(zip(*batch))
+    # Spectra: B × peaks × 2 (m/z, intensity); precursors: B × 3 (neutral mass, charge, m/z).
+    # 谱图按批次补齐峰数；前体三列的顺序为中性质量、电荷、m/z。
     spectra = torch.nn.utils.rnn.pad_sequence(spectra, batch_first=True)
     precursor_mzs = torch.tensor(precursor_mzs)
     precursor_charges = torch.tensor(precursor_charges)

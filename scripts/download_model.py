@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# The pinned download targets the historical preprint asset.
+# 此下载器固定指向预印本权重，不会自动选择本文的单菌或宏蛋白质组权重。
 """Download and verify the pi-MNovo v0.1.0 unified checkpoint."""
 
 from __future__ import annotations

@@ -1,3 +1,5 @@
+# Represent peptide mass using the configured residue vocabulary.
+# 按配置的残基词表计算肽段质量。
 """Amino acid masses and other useful mass spectrometry calculations"""
 
 import re

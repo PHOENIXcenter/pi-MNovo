@@ -1,3 +1,5 @@
+# Check dataset and loader behavior on training inputs.
+# 检查训练数据集与加载器对输入的处理。
 import torch
 
 from MNovo.denovo.data import DeNovoDataModule

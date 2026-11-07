@@ -5,7 +5,6 @@ type: software
 authors:
   - family-names: "Ye"
     given-names: "Jingwen"
-version: 0.1.0
-date-released: 2026-09-03
-repository-code: "https://github.com/ye-jing-wen/pi-MNovo"
+version: 0.2.0
+repository-code: "https://github.com/PHOENIXcenter/pi-MNovo"
 license: MIT

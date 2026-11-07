@@ -1,3 +1,5 @@
+# Validate selected candidate indices against the available candidates.
+# 按可用候选核对最终选择的索引。
 """Validate requested spectrum subsets before starting inference."""
 
 import numpy as np

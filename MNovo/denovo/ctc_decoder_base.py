@@ -2,6 +2,8 @@
 #
 # This source code is licensed under the MIT license found in the
 # LICENSE file in the root directory of this source tree.
+# CTC helpers for index conversion and repeated-token collapse.
+# 提供索引转换和重复 token 折叠等 CTC 操作。
 from typing import List, Tuple
 
 import torch

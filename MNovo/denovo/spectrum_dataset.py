@@ -1,3 +1,5 @@
+# Prepare the peak array consumed by the model; filtering order matters.
+# 准备模型输入峰数组，筛选次序也是预处理的一部分。
 import logging
 from collections.abc import Sequence
 from typing import Optional

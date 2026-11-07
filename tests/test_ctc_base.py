@@ -1,3 +1,5 @@
+# Check blank removal and repeated-token handling.
+# 检查 blank 和重复 token 的处理。
 import pytest
 
 from MNovo.denovo.ctc_decoder_base import CTCDecoderBase

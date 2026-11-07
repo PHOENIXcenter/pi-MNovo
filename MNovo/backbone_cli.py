@@ -1,3 +1,5 @@
+# Dispatch backbone training and prediction with the selected configuration.
+# 按所选配置调度骨干训练或预测。
 """Internal command-line entry point for backbone training."""
 
 import datetime
@@ -158,14 +160,12 @@ def main(
         str(aa): float(mass) for aa, mass in config["residues"].items()
     }
     # Add extra configuration options and scale by the number of GPUs.
-    n_gpus = torch.cuda.device_count()
     config["n_workers"] = (
         int(config["n_workers"])
         if config.get("n_workers") is not None
         else utils.n_workers()
     )
-    if n_gpus > 1:
-        config["train_batch_size"] = config["train_batch_size"] // n_gpus
+    # train_batch_size is per device; visibility must not silently change it.
 
     config["model_save_folder_path"] = str(output_dir / "checkpoints")
     if not config.get("metrics_csv_path"):

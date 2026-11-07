@@ -1,3 +1,5 @@
+# The backbone returns per-position predictions; training hooks also consume reference labels.
+# 骨干输出位置级预测；训练钩子还使用参考标注。
 """A de novo peptide sequencing model."""
 
 from concurrent.futures import ThreadPoolExecutor
@@ -15,7 +17,8 @@ from . import mass_con
 from ..components import ModelMixin, PeptideDecoder, SpectrumEncoder
 from .ctc_beam_search import CTCBeamSearchDecoder
 from .metric_counts import CountRatio, match_counts, metric_components
-from MNovo.ctc import validate_targets
+from MNovo.training_ctc import masked_ctc_loss
+from MNovo.distributed_training import distributed_ctc, check_finite_gradients
 
 AA_MASSES = {
     "G": 57.021464,
@@ -186,6 +189,10 @@ class Spec2Pep(pl.LightningModule, ModelMixin):
         backbone_lr_multiplier: float = 0.1,
         output_module_prefixes=None,
         freeze_module_prefixes=None,
+        ctc_max_invalid_fraction: float = 0.05,
+        ctc_guard_min_samples: int = 1000,
+        ctc_max_empty_batches: int = 10,
+        lr_schedule: str = "cosine",
         **kwargs: Dict,
     ):
         super().__init__()
@@ -243,6 +250,21 @@ class Spec2Pep(pl.LightningModule, ModelMixin):
         self.output_module_prefixes = tuple(output_module_prefixes or [])
         self.freeze_module_prefixes = tuple(freeze_module_prefixes or [])
         self.custom_ctc_loss = custom_ctc_loss
+        if lr_schedule not in ("cosine", "warmup_constant"):
+            raise ValueError("Unknown learning-rate schedule")
+        self.lr_schedule = lr_schedule
+        if not 0 <= ctc_max_invalid_fraction <= 1:
+            raise ValueError("ctc_max_invalid_fraction must be in [0, 1]")
+        if ctc_guard_min_samples < 1 or ctc_max_empty_batches < 1:
+            raise ValueError("CTC guard counts must be positive")
+        self.ctc_max_invalid_fraction = ctc_max_invalid_fraction
+        self.ctc_guard_min_samples = ctc_guard_min_samples
+        self.ctc_max_empty_batches = ctc_max_empty_batches
+        self._ctc_counts = {}
+        self._ctc_empty_batches = 0
+        self._ctc_window_has_data = False
+        self._ctc_last_update = False
+        self._ctc_valid_count = 0
 
         # Data properties.
         self.max_length = max_length
@@ -386,11 +408,7 @@ class Spec2Pep(pl.LightningModule, ModelMixin):
             The loss of the training step.
 
         """
-        # import time
-
-        # begintime=time.time()
-
-        pred, truth, output_list = self._forward_step(*batch)
+        pred, truth, output_list = self._forward_step(*batch[:3])
         assert len(output_list) == self.n_layers
 
         # Compute AA recall, AA precision and Pep recall in training step
@@ -414,34 +432,26 @@ class Spec2Pep(pl.LightningModule, ModelMixin):
         if self.custom_ctc_loss:
             raise NotImplementedError("custom_ctc_loss is not supported.")
         prediction = output_list[-1].permute(1, 0, 2)
-        input_lengths = torch.full(
-            size=(prediction.size(1),),
-            fill_value=prediction.size(0),
-        )
         target_lengths = (truth != self.decoder.get_pad_idx()).sum(axis=1)
-        validate_targets(
-            truth, target_lengths, prediction.size(0), self.decoder.get_blank_idx()
-        )
-        loss = self.ctcloss(
-            torch.nn.functional.log_softmax(prediction, dim=-1),
-            truth,
-            input_lengths,
-            target_lengths,
-        )
-
-        if not torch.isfinite(loss).all():
-            raise FloatingPointError("Non-finite CTC loss; refusing silent zero loss.")
-        # Preserve PyTorch's original mean convention for valid targets.
-        loss = (loss / target_lengths.to(loss.device).clamp_min(1)).mean()
+        result = masked_ctc_loss(prediction, truth, target_lengths,
+                                 self.decoder.get_blank_idx())
+        loss, reported, global_count, global_total = distributed_ctc(result, prediction)
+        self._ctc_valid_count = global_count
+        self._ctc_global_total = global_total
+        self._ctc_reported_loss = reported
+        self._record_ctc_batch(mode, result, batch)
 
         if mode == "train":
-            self.log(
+            self._ctc_window_has_data |= global_count > 0
+            if global_count:
+                self.log(
                 "train/CELoss",
-                loss.detach(),
+                reported,
                 on_step=False,
                 on_epoch=True,
                 sync_dist=True,
                 add_dataloader_idx=False,
+                batch_size=self._ctc_valid_count,
             )
 
         return loss
@@ -468,15 +478,12 @@ class Spec2Pep(pl.LightningModule, ModelMixin):
                 "fit accepts only validation; evaluate test after freezing."
             )
         loss = self.training_step(batch, mode="valid")
-        self.log(
-            "valid/CELoss",
-            loss.detach(),
-            on_step=False,
-            on_epoch=True,
-            sync_dist=True,
-            add_dataloader_idx=False,
-            batch_size=len(batch[2]),
-        )
+        if self._ctc_valid_count:
+            self.log(
+                "valid/CELoss", self._ctc_reported_loss, on_step=False, on_epoch=True,
+                sync_dist=True, add_dataloader_idx=False,
+                batch_size=self._ctc_valid_count,
+            )
 
         # Calculate and log amino acid and peptide match evaluation metrics from
         # the predicted peptides.
@@ -485,6 +492,62 @@ class Spec2Pep(pl.LightningModule, ModelMixin):
             peptides_pred_raw, inferscores = self.forward(batch[0], batch[1], batch[2])
             self._record_matches("valid", batch[2], peptides_pred_raw)
         return loss
+
+    def _record_ctc_batch(self, mode, result, batch):
+        total = self._ctc_global_total
+        invalid = total - self._ctc_valid_count
+        counts = self._ctc_counts.setdefault(mode, {"seen": 0, "excluded": 0})
+        counts["seen"] += total
+        counts["excluded"] += invalid
+        for index, reason in enumerate(result.reasons):
+            if reason:
+                identity = batch[3][index] if len(batch) > 3 else {"batch_index": index}
+                logger.warning("CTC excluded stage=%s sample=%s reason=%s sequence=%s",
+                               mode, identity, reason, batch[2][index])
+        for name, value in (("seen", total), ("excluded", invalid),
+                            ("effective", self._ctc_valid_count)):
+            self.log(f"{mode}/ctc_{name}", float(value), on_step=False,
+                     on_epoch=True, reduce_fx="sum", batch_size=total)
+        if mode != "train":
+            return
+        self._ctc_empty_batches = self._ctc_empty_batches + 1 if invalid == total else 0
+        if self._ctc_empty_batches >= self.ctc_max_empty_batches:
+            raise RuntimeError("CTC safety stop: consecutive empty training batches")
+        if (counts["seen"] >= self.ctc_guard_min_samples and
+                counts["excluded"] / counts["seen"] > self.ctc_max_invalid_fraction):
+            raise RuntimeError("CTC safety stop: excessive excluded training samples")
+
+    def on_train_start(self):
+        logger.info("Sample-masked CTC: global valid-count weighting, world_size=%s",
+                    self.trainer.world_size)
+
+    def optimizer_step(self, epoch, batch_idx, optimizer, optimizer_idx,
+                       optimizer_closure, **kwargs):
+        def closure():
+            output = optimizer_closure()
+            if not self._ctc_window_has_data:
+                # None gradients also prevent AdamW momentum and weight decay.
+                for group in optimizer.param_groups:
+                    for parameter in group["params"]:
+                        parameter.grad = None
+            return output
+        optimizer.step(closure=closure)
+        self._ctc_last_update = self._ctc_window_has_data
+        self._ctc_window_has_data = False
+
+    def lr_scheduler_step(self, scheduler, optimizer_idx, metric):
+        if self._ctc_last_update:
+            scheduler.step() if metric is None else scheduler.step(metric)
+
+    def on_save_checkpoint(self, checkpoint):
+        checkpoint["ctc_accounting"] = {
+            "counts": self._ctc_counts, "empty_batches": self._ctc_empty_batches,
+        }
+
+    def on_load_checkpoint(self, checkpoint):
+        state = checkpoint.get("ctc_accounting", {})
+        self._ctc_counts = state.get("counts", {})
+        self._ctc_empty_batches = state.get("empty_batches", 0)
 
     def _record_matches(self, stage, truths, predictions):
         counts = match_counts(truths, predictions, self.decoder._peptide_mass.masses)
@@ -554,26 +617,18 @@ class Spec2Pep(pl.LightningModule, ModelMixin):
             )
         # optimizer = Lion(self.parameters(), **self.opt_kwargs)
         # Apply learning rate scheduler per step.
-        lr_scheduler = CosineWarmupScheduler(
-            optimizer, warmup=self.warmup_iters, max_iters=self.max_iters
-        )
+        if self.lr_schedule == "warmup_constant":
+            lr_scheduler = torch.optim.lr_scheduler.LambdaLR(
+                optimizer, lambda step: min(1.0, (step + 1) / max(1, self.warmup_iters))
+            )
+        else:
+            lr_scheduler = CosineWarmupScheduler(
+                optimizer, warmup=self.warmup_iters, max_iters=self.max_iters
+            )
         return [optimizer], {"scheduler": lr_scheduler, "interval": "step"}
 
     def on_after_backward(self) -> None:
-        valid_gradients = True
-        for name, param in self.named_parameters():
-            if param.grad is not None:
-                valid_gradients = not (
-                    torch.isnan(param.grad).any() or torch.isinf(param.grad).any()
-                )
-                if not valid_gradients:
-                    break
-
-        if not valid_gradients:
-            logger.warning(
-                f"detected inf or nan values in gradients. not updating model parameters"
-            )
-            self.zero_grad()
+        check_finite_gradients(self.parameters())
 
 
 class CosineWarmupScheduler(torch.optim.lr_scheduler._LRScheduler):

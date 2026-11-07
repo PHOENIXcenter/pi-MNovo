@@ -1,3 +1,5 @@
+# Common model initialization and parameter-inspection helpers.
+# 提供模型初始化和参数查询等共享接口。
 """Useful mixins for model classes"""
 
 import pandas as pd

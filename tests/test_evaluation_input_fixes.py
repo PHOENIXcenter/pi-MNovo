@@ -1,7 +1,8 @@
+# Keep input accounting separate from metric calculation.
+# 区分输入阶段的记录变化与评价指标的计算。
 import csv
 import json
 import sys
-from pathlib import Path
 
 import numpy as np
 import pytest

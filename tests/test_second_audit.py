@@ -1,3 +1,5 @@
+# Regression checks for the observable router and surrounding contracts.
+# 核对可观测路由及相关接口的回归行为。
 """Second audit: exercise public boundaries omitted by the initial fixes."""
 
 from types import SimpleNamespace
@@ -48,6 +50,53 @@ def test_external_config_cannot_change_inference_mass_or_preprocessing(tmp_path)
     )
     with pytest.raises(ValueError, match="frozen"):
         cli.apply_config(args)
+
+
+def test_runtime_only_external_config_merges_with_frozen_checkpoint(tmp_path):
+    frozen = {
+        "max_charge": 10,
+        "residues": {"A": 71.037114},
+        "n_peaks": 800,
+        "runtime": {
+            "mode": "fast",
+            "batch_size": 128,
+            "n_workers": 16,
+            "ctc_processes": 16,
+        },
+    }
+    (tmp_path / "config").mkdir()
+    (tmp_path / "config/inference.yaml").write_text(yaml.safe_dump(frozen))
+    override = tmp_path / "runtime.yaml"
+    override.write_text(
+        yaml.safe_dump(
+            {
+                "runtime": {
+                    "batch_size": 32,
+                    "n_workers": 4,
+                    "temp_dir": "/tmp/pi-mnovo",
+                }
+            }
+        )
+    )
+    args = SimpleNamespace(
+        model_dir=str(tmp_path),
+        config=str(override),
+        task="denovo",
+        mode=None,
+        batch_size=None,
+        n_workers=None,
+        ctc_processes=None,
+        temp_dir=None,
+    )
+
+    resolved = cli.apply_config(args)
+
+    assert resolved.batch_size == 32
+    assert resolved.n_workers == 4
+    assert resolved.ctc_processes == 16
+    assert resolved.temp_dir == "/tmp/pi-mnovo"
+    assert resolved.max_charge == 10
+    assert resolved.config == str((tmp_path / "config/inference.yaml").resolve())
 
 
 def test_python_prediction_api_rejects_fractional_indices_before_coercion(monkeypatch):

@@ -1,3 +1,5 @@
+# Aggregate match counts before forming ratios.
+# 先汇总匹配计数，再计算比例，不能直接平均批次比例。
 """Truth-first integer counts; failed predictions remain in the denominator."""
 
 import torch

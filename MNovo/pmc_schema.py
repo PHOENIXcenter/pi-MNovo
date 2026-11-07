@@ -1,3 +1,5 @@
+# Check that the model vocabulary fits the PMC kernel layout.
+# 在调用 PMC 内核前核对词表与内核布局。
 """The token and mass contract of the fixed CUDA PMC kernel."""
 
 PMC_RESIDUES = {

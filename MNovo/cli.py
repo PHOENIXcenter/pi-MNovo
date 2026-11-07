@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# Keep input accounting, model output and optional quality control separate.
+# 输入审计、序列预测与可选质控分别产出结果。
 """Command-line interface for pi-MNovo."""
 
 from __future__ import annotations
@@ -148,7 +150,10 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--config",
-        help=("Inference YAML. Defaults to <model-dir>/config/inference.yaml."),
+        help=(
+            "Optional YAML containing runtime controls only. Frozen model and "
+            "preprocessing settings are loaded from the checkpoint."
+        ),
     )
     inputs = parser.add_mutually_exclusive_group(required=True)
     inputs.add_argument(
@@ -183,6 +188,14 @@ def parse_args() -> argparse.Namespace:
         default="union",
         help="beam-only is diagnostic and changes the candidate algorithm.",
     )
+    parser.add_argument("--fdr", "--fdr-mode", dest="fdr_mode", choices=("off", "on"), default="off",
+                        help="Optional paired CCT filtering; off preserves native predictions.")
+    parser.add_argument("--gpus", help="Visible CUDA device indices, e.g. 0 or 0,1. Inference uses one process per device.")
+    parser.add_argument("--fdr-profile", "--cct-profile", dest="cct_profile", help="Corrected CCT fitted profile (.pt); required for --fdr on")
+    parser.add_argument("--scope-id", "--cct-scope-id", dest="cct_scope_id", help="Explicit analysis scope shared by calibration and application")
+    parser.add_argument("--features-output", "--cct-features-output", dest="cct_features_output", help="Export paired CTC features without fitting; off or on")
+    parser.add_argument("--psm-fdr", type=float, default=.05)
+    parser.add_argument("--peptide-fdr", type=float, default=.05)
     parser.add_argument(
         "--metrics-output",
         help="Evaluation JSON path; defaults beside --output.",
@@ -262,6 +275,19 @@ def run(
     input_files: list[Path],
     total_spectra: int,
 ) -> int:
+    fdr_mode = getattr(args, "fdr_mode", "off")
+    requested_fdr_mode = fdr_mode
+    cct_enabled = fdr_mode == "on"
+    cct_features = getattr(args, "cct_features_output", None)
+    if cct_enabled:
+        if not getattr(args, "cct_profile", None):
+            raise ValueError("--fdr on requires --cct-profile; fitting is separate")
+        cct_features = cct_features or str(Path(args.output).with_suffix(".cct_features.csv"))
+        fdr_mode = "off"
+    elif getattr(args, "cct_profile", None):
+        raise ValueError("--cct-profile requires --fdr on")
+    if cct_features and (fdr_mode != "off" or not getattr(args, "cct_scope_id", None)):
+        raise ValueError("CCT export requires --cct-scope-id and no legacy confidence filtering")
     indices = validate_selection(
         np.load(args.indices, allow_pickle=False) if args.indices else None,
         total_spectra,
@@ -270,10 +296,15 @@ def run(
     )
     progress_total = len(indices) if indices is not None else total_spectra
     if progress_total == 0:
+        if cct_features:
+            raise ValueError("CCT input contains no spectra; no completion artifact produced")
         output = Path(args.output)
         output.parent.mkdir(parents=True, exist_ok=True)
         temporary = output.with_suffix(output.suffix + ".tmp")
-        temporary.write_text(OUTPUT_HEADER, encoding="utf-8")
+        temporary.write_text(
+            OUTPUT_HEADER,
+            encoding="utf-8",
+        )
         temporary.replace(output)
         print(json.dumps({"status": "no_accepted_spectra", "processed": 0}))
         return 0
@@ -284,14 +315,40 @@ def run(
         n_workers=args.n_workers,
         ctc_processes=args.ctc_processes,
     )
-    runtime = MNovoRuntime(args.model_dir, options, device=args.device)
+    cct_profile = None
+    cct_output = Path(args.output).with_suffix(".cct")
+    if cct_features:
+        from MNovo.cct_pipeline import runtime_identity, load_profile
+        artifacts = [Path(p).resolve() for p in (args.output, cct_features,
+                     str(cct_features) + ".receipt.json", cct_output,
+                     str(args.output) + ".tmp", str(args.output) + ".final.tmp")]
+        if len(set(artifacts)) != len(artifacts):
+            raise ValueError("Native predictions, CCT features and QC outputs must be distinct")
+        if any(cct_output.resolve() in p.parents for p in artifacts):
+            raise ValueError("CCT features/native predictions cannot be inside QC output directory")
+        identity = runtime_identity(args.model_dir, args.config, options, args.device)
+        if any(Path(p).exists() for p in (cct_features, str(cct_features) + ".receipt.json", args.output, cct_output)):
+            raise FileExistsError("CCT output already exists; choose a new output path")
+        if cct_enabled:
+            cct_profile = load_profile(args.cct_profile, identity, args.cct_scope_id,
+                                       args.psm_fdr, args.peptide_fdr)
+    runtime = MNovoRuntime(
+        args.model_dir, options, device=args.device, fdr_mode=fdr_mode
+    )
     output = Path(args.output)
     output.parent.mkdir(parents=True, exist_ok=True)
+    exporter = None
+    if cct_features:
+        from MNovo.cct_runtime import CCTFeatureExporter
+        Path(cct_features).parent.mkdir(parents=True, exist_ok=True)
+        exporter = CCTFeatureExporter(runtime.backbone.decoder, runtime.config["residues"], cct_features)
+        runtime.cct_exporter = exporter
     started = time.time()
     count = 0
     route_counts = {"r1": 0, "r2_long": 0, "r3_fragment": 0, "none": 0}
     temporary = output.with_suffix(output.suffix + ".tmp")
     with (
+        exporter if exporter is not None else nullcontext(),
         temporary.open("w", encoding="utf-8") as handle,
         LmdbTitleLookup(lmdb) as titles,
     ):
@@ -317,23 +374,16 @@ def run(
                 count += 1
                 route_counts[prediction.route] += 1
                 record = titles.spectrum(prediction.dataset_index)
-                handle.write(
-                    "\t".join(
-                        output_row(
+                public_row = output_row(
                             record,
                             prediction.dataset_index,
                             prediction.peptide,
                             prediction.confidence,
                             runtime.config["residues"],
                         )
-                        + [
-                            prediction.status,
-                            prediction.route,
-                            str(prediction.dataset_index),
-                        ]
-                    )
-                    + "\n"
-                )
+                row = public_row + [prediction.status, prediction.route,
+                                    str(prediction.dataset_index)]
+                handle.write("\t".join(row) + "\n")
                 progress.update(1)
                 if count % 5000 == 0:
                     elapsed = max(time.time() - started, 1e-6)
@@ -345,7 +395,7 @@ def run(
                                 "progress_fraction": count / progress_total,
                                 "spectra_per_second": count / elapsed,
                                 "candidate_generation": {
-                                    "beam_width": 5,
+                                    "beam_width": runtime.beam_width,
                                     "pmc_mode": "union"
                                     if args.candidate_mode == "union"
                                     else "off",
@@ -363,7 +413,19 @@ def run(
                     )
     if count != progress_total:
         raise RuntimeError(f"Prediction count mismatch: {count} vs {progress_total}.")
+    if exporter is not None:
+        from MNovo.cct_pipeline import write_receipt
+        if exporter.complete_pairs + exporter.invalid_pairs != count:
+            raise RuntimeError("CCT paired feature accounting differs from native predictions")
+        write_receipt(cct_features, identity, args.cct_scope_id, exporter)
     temporary.replace(output)
+    if cct_enabled:
+        from MNovo.cct_pipeline import apply_profile, _sha256
+        cct_report = apply_profile(cct_features, cct_profile, cct_output)
+        cct_report["profile_sha256"] = _sha256(args.cct_profile)
+        cct_report["native_predictions"] = str(output.resolve())
+        cct_report["native_predictions_sha256"] = _sha256(output)
+        (cct_output / "report.json").write_text(json.dumps(cct_report, indent=2))
     elapsed = max(time.time() - started, 1e-6)
     print(
         json.dumps(
@@ -374,10 +436,13 @@ def run(
                 "candidate_mode": args.candidate_mode,
                 "output": str(output.resolve()),
                 "processed": count,
+                "fdr_mode": requested_fdr_mode,
+                "fdr_passed": cct_report["accepted_psms"] if cct_enabled else None,
+                "output_rows": count,
                 "seconds": elapsed,
                 "spectra_per_second": count / elapsed,
                 "candidate_generation": {
-                    "beam_width": 5,
+                    "beam_width": runtime.beam_width,
                     "pmc_mode": "union" if args.candidate_mode == "union" else "off",
                     "statistics": dict(runtime.candidate_statistics),
                     "dynamic_expansion": False,
@@ -424,6 +489,8 @@ def main() -> None:
         config_was_explicit = parsed.config is not None
         args = apply_config(parsed)
         if args.task == "train":
+            if args.gpus:
+                raise ValueError("For training set trainer_devices in the YAML; --gpus is the inference selector.")
             if args.lmdb:
                 raise ValueError("--model train requires MGF input, not --lmdb.")
             if not config_was_explicit:
@@ -509,7 +576,8 @@ def main() -> None:
         with context as (lmdb, input_files, total_spectra):
             phase = "prediction"
             try:
-                predicted = run(args, lmdb, input_files, total_spectra)
+                from MNovo.multi_gpu import run_selected_devices
+                predicted = run_selected_devices(args, lmdb, input_files, total_spectra)
             except Exception:
                 if audit:
                     audit.save("prediction_failed")

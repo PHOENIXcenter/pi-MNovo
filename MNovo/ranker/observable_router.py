@@ -1,3 +1,5 @@
+# The router uses observable evidence; correctness labels are not inference inputs.
+# 推理路由使用可观测证据，不使用参考正确性标签。
 """Observable spectrum-level routing between R1, R2, and R3."""
 
 from __future__ import annotations

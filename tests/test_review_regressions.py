@@ -1,7 +1,7 @@
-from pathlib import Path
+# Compare edge cases against fixed expectations rather than cohort metrics.
+# 用固定期望值验证边界情况，不据此推断真实群落指标。
 from types import SimpleNamespace
 import hashlib
-import json
 import math
 from concurrent.futures import ThreadPoolExecutor
 
@@ -262,7 +262,7 @@ def test_concurrent_release_extraction_and_config_tamper(tmp_path):
         resolve_model_release(roots[0])
 
 
-def test_mixed_empty_pool_preserves_indices_and_only_ranks_valid_rows():
+def test_mixed_empty_pool_preserves_indices_and_only_ranks_valid_rows(monkeypatch):
     runtime = object.__new__(MNovoRuntime)
     runtime.options = RuntimeOptions(candidate_mode="beam-only")
     runtime.device = torch.device("cpu")
@@ -280,14 +280,24 @@ def test_mixed_empty_pool_preserves_indices_and_only_ranks_valid_rows():
 
     def select(data, spectra):
         assert len(data["rows"]) == 1 and spectra.shape[0] == 1
-        return torch.tensor([0]), torch.tensor([0.8]), ["r1"]
+        return torch.tensor([0]), torch.tensor([float('nan')]), ["r1"], {}
 
-    runtime._observable_select = select
+    runtime._observable_select_with_evidence = select
+    runtime.backbone.decoder.get_blank_idx = lambda: 0
+    def score_inputs(rows, selected, evidence, log_probs, blank):
+        assert len(rows) == 1 and len(selected) == 1 and log_probs.shape[0] == 1
+        return ()
+    monkeypatch.setattr('MNovo.runtime.build_score_inputs', score_inputs)
+    def score(memory):
+        assert memory.shape[0] == 1
+        return torch.tensor([0.8])
+    runtime.sequence_score = SimpleNamespace(score=score)
     predictions = runtime.predict_batch(
         torch.zeros(3, 1, 2), torch.zeros(3, 3), torch.tensor([7, 2, 9])
     )
     assert [p.dataset_index for p in predictions] == [7, 2, 9]
     assert [p.peptide for p in predictions] == ["", "AK", ""]
+    assert predictions[1].confidence == pytest.approx(0.8)
     assert [p.status for p in predictions] == [
         "no_valid_candidate",
         "complete",
@@ -295,7 +305,7 @@ def test_mixed_empty_pool_preserves_indices_and_only_ranks_valid_rows():
     ]
 
 
-def test_actual_training_loss_rejects_repeats_and_preserves_valid_mean(monkeypatch):
+def test_actual_training_loss_excludes_repeats_and_preserves_valid_mean(monkeypatch):
     import MNovo.denovo.model as model_module
 
     monkeypatch.setattr(model_module, "CTCBeamSearchDecoder", lambda *args: None)
@@ -322,8 +332,9 @@ def test_actual_training_loss_rejects_repeats_and_preserves_valid_mean(monkeypat
         logits.log_softmax(-1), truth, torch.tensor([4]), torch.tensor([2])
     )
     assert torch.allclose(model.training_step(batch), old, rtol=1e-5)
-    with pytest.raises(ValueError, match="CTC-unalignable"):
-        model.training_step((spectra, precursors, ["AAAA"]))
+    empty_loss = model.training_step((spectra, precursors, ["AAAA"]))
+    assert empty_loss.item() == 0 and empty_loss.requires_grad
+    assert model._ctc_counts['train'] == {'seen': 2, 'excluded': 1}
 
 
 def test_lightning_epoch_aggregation_and_callback_sees_current_metrics():

@@ -1,6 +1,7 @@
+# Synthetic MGF blocks exercise accepted and rejected records together.
+# 把可接收与拒绝的 MGF 记录放在同一输入中核对计数。
 import csv
 import json
-from pathlib import Path
 from types import SimpleNamespace
 
 import pytest

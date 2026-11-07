@@ -1,258 +1,131 @@
 # pi-MNovo
 
-pi-MNovo is a microbial-domain de novo peptide sequencing model for tandem
-mass spectra. The release combines a non-autoregressive CTC backbone,
-precise-mass-control candidate generation, three candidate-ranking paths, and
-a conservative observable router in one inference entry point.
+CTC peptide sequencing with Beam20 + PMC, three experts and an observable router.
+Optional Counterpart FDR is post-processing, not a change to sequence selection.
 
-**Preprint:** [π-MNovo improves de novo peptide sequencing through microbial-domain adaptation and evidence-guided candidate selection](https://doi.org/10.64898/2026.09.22.753549) (bioRxiv, 2026).
+**Version 0.2.0** · [中文使用说明与代码导读](docs/README.zh-CN.md)
 
-## Package and checkpoint
+Use the isolate checkpoint for microbial isolates and the metaproteome checkpoint
+for real-community metaproteomes. Pass the selected checkpoint explicitly with
+`--model-dir`. Neither checkpoint supplies a cohort-specific fitted CCT profile.
 
-The Python package version is `0.1.1.dev0`. The downloadable unified checkpoint
-is `pi-MNovo-v0.1.0.ckpt`, with SHA256:
+## Repository map
 
-```text
-1de589a887a7b7271aae794b90850ece6c3c68c6d085374d0b32e40ec18d617f
-```
+MGF input → accepted spectra → CTC beam and PMC candidates → R1/R2/R3 ranking
+and routing → confidence for the selected sequence. Optional CCT filtering
+consumes paired evidence; it does not choose the sequence.
 
-The checkpoint loads the backbone, default ranker, long-peptide expert,
-fragment-evidence expert, length predictor, router, and score calibrator once.
-Candidate generation is fixed to Beam5 plus PMC union. Experimental FDR and
-dynamic Beam20 paths are not part of this release.
-
-## How it works
-
-![pi-MNovo model architecture](docs/assets/pi-MNovo_model_architecture.png)
-
-An MS/MS spectrum and its precursor mass and charge are encoded once by a
-shared non-autoregressive backbone. The parallel CTC decoder generates Beam5
-candidates, while precise-mass-control decoding adds a mass-consistent candidate
-to the same pool. A default ranker, a long-peptide expert, and a fragment-evidence
-expert score the shared candidates. The conservative router retains the default
-result unless an expert shows sufficient evidence under the frozen routing rule.
-The selected peptide is reported with a calibrated `Score` between 0 and 1.
-
-## System requirements
-
-**An NVIDIA GPU is required to run pi-MNovo prediction and training. CPU-only
-execution is not supported for the complete program.**
-
-- Linux x86-64 with glibc 2.34 or newer
-- NVIDIA GPU supporting BF16, with a CUDA 12 compatible driver
-- Conda or Mamba
-- Python 3.10
+| Location | Responsibility |
+| --- | --- |
+| `MNovo/` | CLI, input accounting, inference, final Score and evaluation |
+| `MNovo/components/`, `MNovo/denovo/` | Transformer layers, spectrum data, decoding and backbone training |
+| `MNovo/ranker/` | Candidate features, length and fragment evidence, and routing |
+| `MNovo/cct_*.py`, `MNovo/cct_core/` | Paired features, fixed-role fitting, calibration and filtering |
+| `scripts/` | Checkpoint and label audits, historical downloader and training smoke test |
+| `tests/`, `tests/data/` | Regression tests and synthetic MGF input |
+| `docs/`, `wheels/` | Usage and validation notes; native Linux decoder wheel |
 
 ## Installation
 
+Linux x86-64, Python 3.10, CUDA 12 and a BF16-capable NVIDIA GPU are required
+for the complete sequencing pipeline. The bundled decoder wheel targets
+PyTorch 2.5.1; other platforms require rebuilding the native extension.
+
 ```bash
-git clone https://github.com/PHOENIXcenter/pi-MNovo.git
-cd pi-MNovo
 conda env create -f environment.yml
 conda activate pi-mnovo
 pip install -e . --no-deps
 ```
 
-The environment installs the bundled `ctcdecode` wheel for Python 3.10 on
-Linux x86-64. It was built against PyTorch 2.5.1. Other platforms require rebuilding
-[ctcdecode](https://github.com/parlance/ctcdecode) against the active PyTorch.
+## Download a checkpoint
 
-## Model checkpoint
+Choose a checkpoint for your sample type from the v0.2.0 release assets:
 
-The unified checkpoint is distributed as an asset of the
-[v0.1.0 GitHub Release](https://github.com/PHOENIXcenter/pi-MNovo/releases/tag/v0.1.0),
-rather than being stored in the Git repository. Download and verify it with:
+| Sample type | Model checkpoint |
+| --- | --- |
+| Microbial isolates | [pi-MNovo-isolate.ckpt](https://github.com/PHOENIXcenter/pi-MNovo/releases/download/v0.2.0/pi-MNovo-isolate.ckpt) |
+| Community metaproteomes | [pi-MNovo-metaproteome.ckpt](https://github.com/PHOENIXcenter/pi-MNovo/releases/download/v0.2.0/pi-MNovo-metaproteome.ckpt) |
 
-```bash
-python scripts/download_model.py
-```
+Use trusted checkpoints and LMDB files only. The bundle must supply the
+backbone, rankers, length predictor, router and both final-Score components.
+`scripts/download_model.py` targets the historical preprint checkpoint, not the
+two manuscript assets. Pass their paths explicitly. The environment file
+installs the native decoder and pinned requirements; resolving the dependency
+ranges in `pyproject.toml` alone does not reproduce that environment.
 
-By default, the checkpoint is saved as:
-
-```text
-models/pi-MNovo-v0.1.0.ckpt
-```
-
-The downloader verifies the file against the release SHA256 and removes an
-incomplete or mismatched download. To use a different destination:
+## Prediction
 
 ```bash
-python scripts/download_model.py \
-  --output /your/path/pi-MNovo-v0.1.0.ckpt
+# Use the path to the downloaded checkpoint. For community samples,
+# set CHECKPOINT=./pi-MNovo-metaproteome.ckpt instead.
+CHECKPOINT=./pi-MNovo-isolate.ckpt
+pi-mnovo --input sample.mgf --model-dir "$CHECKPOINT" --output native.tsv --fdr off
+# Explicit single GPU:
+pi-mnovo --input sample.mgf --model-dir "$CHECKPOINT" --output native.tsv --gpus 0
+# Multi-GPU, indices relative to CUDA_VISIBLE_DEVICES when set:
+pi-mnovo --input sample.mgf --model-dir "$CHECKPOINT" --output native.tsv --gpus 0,1
 ```
 
-The checkpoint can also be downloaded directly from the
-[release asset](https://github.com/PHOENIXcenter/pi-MNovo/releases/download/v0.1.0/pi-MNovo-v0.1.0.ckpt).
+Input accepts MGF files, directories or quoted globs. Whole batches are assigned
+to workers and merged in input order. Preserve batch size and precision for
+reproduction. Native TSV includes sequence, Score, Route, Status and dataset_index.
+**Score is not an FDR or q-value.** Empty predictions remain explicit failures.
 
-## De novo prediction
+The software computes the frozen C1/long-peptide sequence Score
+independently of `--fdr off/on`. CCT filtering and its fitted profiles are unchanged.
+The Score uses the original confidence head and calibrator shipped with the unified
+checkpoint, not the router probability or a replacement CTC score. A new backbone
+does not establish calibration validity in a new domain. Missing scoring components
+are an error rather than a silently exported NaN. Previous rc1 sequence-only tables
+may contain NaN Score values; sequence and recall results remain separate from this
+score repair. `MNovoRuntime.score_saved_batch` can score fixed trace predictions
+without decoding or changing their sequence, route, or status.
+Input-audit sidecars reconcile original, accepted and rejected spectra.
 
-The input can be one MGF file, a directory, or a case-insensitive MGF glob.
-Runtime defaults are read from the checkpoint, so the performance parameters
-do not need to be supplied on every invocation.
+## Optional FDR
 
 ```bash
-pi-mnovo \
-  --model denovo \
-  --input tests/data/synthetic.mgf \
-  --output predictions.tsv
+pi-mnovo --input sample.mgf --model-dir "$CHECKPOINT" --output native.tsv \
+  --fdr on --scope-id study-v1 --fdr-profile fitted/cct_profile.pt \
+  --psm-fdr .05 --peptide-fdr .05
 ```
 
-CUDA is selected automatically. Prediction requires an NVIDIA GPU.
-The default inference pipeline fails before loading weights if CUDA is unavailable.
-The ctcdecode extension is required. PMC errors abort union inference.
-TSV output includes `Status`, `Route`, and `dataset_index`; an empty pool reports
-`no_valid_candidate`, route `none`, and Score 0 without ranking or calibration.
+FDR is off by default. A scope-matched calibrated profile is required.
+Changes to CCT feature definitions or scoring algorithms may invalidate a fitted
+profile; validate the calibration again or refit it before reporting FDR results.
+Native predictions remain in native.tsv; filtered results go to native.cct/.
+Multi-GPU features are merged before one global FDR calculation. Legacy
+annotate/filter modes are unsupported. See [FDR workflow](CCT_MODULE.md).
 
-Directory and glob examples:
+## Evaluation and training
 
 ```bash
-pi-mnovo --model denovo --input ./mgf --output predictions.tsv
-pi-mnovo --model denovo --input './mgf/**/*.mgf' --output predictions.tsv
+pi-mnovo --model eval --input labelled.mgf --model-dir "$CHECKPOINT" \
+  --output predictions.tsv --metrics-output metrics.json
+pi-mnovo --model train --input './train/*.mgf' --validation-input './eval/*.mgf' \
+  --checkpoint backbone.ckpt --config docs/training_config.example.yaml \
+  --output training_run
 ```
 
-MGF inputs are checked spectrum by spectrum. Invalid spectra are skipped while
-valid spectra continue. Alongside `predictions.tsv`, the command writes:
+Evaluation references use SEQ. CLI recall includes all accepted inputs, even
+empty predictions; rejected spectra are reported separately. This is not
+automatically a study-specific all-original-input benchmark denominator.
 
-- `predictions.input-audit.tsv`: every spectrum's source file, one-based position
-  within that file, TITLE, accepted/rejected status, and accepted `dataset_index`.
-- `predictions.rejected.tsv`: rejected spectra with the field, supported values,
-  actual input, and specific reason (for example, supported charge `1..10`, input `11+`).
-- `predictions.input-summary.json`: original, accepted, predicted and rejected counts.
-
-For a full-input run the final check is `original = predictions + rejected`.
-Explicit subset runs additionally report `not_selected`; these are not invalid spectra.
-All-rejected input produces a header-only prediction file and a zero-prediction
-summary without loading the model. The audit status `accepted` means accepted for
-inference; the prediction TSV records prediction outcomes. Parsing or prediction
-failures are not marked as successfully reconciled. These records describe MGF
-ingestion; pre-existing LMDB inputs do not reconstruct the original MGF provenance.
-
-MGF acceptance also checks the checkpoint's actual peak preprocessing settings.
-Zero/negative intensities, invalid normalized peaks, and spectra with no peaks
-remaining after m/z, precursor or intensity filtering are rejected with the
-filter stage, configured limits and observed peak/intensity values. Other spectra
-continue normally.
-
-The output columns are:
-
-```text
-TITLE  Scan_No  Exp.MH+  Charge  Sequence  Calc.MH+
-Mass_Shift(Exp.-Calc.)  Score  Modification  Status  Route  dataset_index
-```
-
-`Score` is a calibrated value in `[0, 1]`; larger values indicate higher
-empirical confidence. The manuscript operating threshold is approximately
-`0.92`. It is a confidence threshold, not an FDR estimate.
-
-## Evaluation
-
-Evaluation accepts the same input forms as prediction: a single MGF file, a
-directory searched recursively, or a case-insensitive MGF glob. Every spectrum
-must contain a `SEQ` field with its reference peptide.
-
-```bash
-pi-mnovo \
-  --model eval \
-  --input ./annotated_mgf \
-  --output predictions.tsv \
-  --metrics-output metrics.json
-```
-
-Peptide recall uses all accepted spectra as its denominator, including empty
-predictions. Metrics explicitly report `original_input`, `accepted`, `rejected`,
-`evaluable_spectra`, and `peptide_recall_denominator=accepted_input_spectra`.
-Pre-existing LMDB input is labelled `provided_lmdb_spectra`, with unknown original
-MGF and rejection counts set to null. Every evaluation replaces prior metric
-state; all-rejected input writes `no_evaluable_spectra` and null recall/precision.
-Evaluation failures write `evaluation_failed`.
-Failures during setup, input preparation and inference write `initialization_failed`,
-`input_failed` and `prediction_failed`, respectively, with the error type and reason.
-When a prediction TSV includes `dataset_index`, evaluation validates unique integer
-indices covering every accepted spectrum and aligns sequences by that index.
-Reordering indexed rows does not change the result. TSVs without indices
-use row order and explicitly report `prediction_alignment=row_order_without_index`.
-
-Backbone validation and CLI evaluation share the same truth-first integer counters
-and ratio definitions in `MNovo.denovo.metric_counts`. Empty or unsupported
-predictions count as failed predictions, not excluded spectra. Invalid references
-are errors. Counts are summed before division, including short final batches.
-Sequence matching uses the same mass-based algorithm in both entry points.
-
-## Backbone training
-
-Training accepts MGF files or globs for separate training and validation inputs. Do not reuse evaluation peptides during model or threshold selection.
-
-```bash
-pi-mnovo \
-  --model train \
-  --input './train/**/*.mgf' \
-  --validation-input './valid/**/*.mgf' \
-  --config MNovo/config.yaml \
-  --checkpoint path/to/initial_backbone.ckpt \
-  --output runs/backbone
-```
-
-`MNovo/config.yaml` is the default portable configuration. The command-line
-interface starts in de novo inference mode unless `--model eval` or
-`--model train` is selected. By default, backbone training draws 500,000
-spectra without replacement in each epoch; a new sample is drawn at the next
-epoch. This budget can be changed with `train_num_samples` in the YAML. Training
-logs, validation metrics, and checkpoints are written under the directory given
-by `--output`. Dataset sampling, leakage control, and expert/ranker construction
-used for manuscript reproduction are documented separately because they depend
-on labelled training resources that are not distributed in this repository.
+Training YAML selects trainer_accelerator: gpu and trainer_devices: 1 or [0, 1].
+train_batch_size is per device; accumulate_grad_batches controls accumulation.
+See [training safety](docs/training_safety.md). FDR MLP fitting uses one device
+for PSM and CPU for peptide fitting; multi-GPU sequencing/backbone training
+does not alter the statistical FDR protocol.
 
 ## Tests
 
 ```bash
 pip install -r requirements-dev.txt
 pytest -q
-python scripts/verify_release.py --checkpoint models/pi-MNovo-v0.1.0.ckpt
+python tests/test_lightning_training_fix.py 2 /tmp/tiny-ddp.ckpt
+TEST_OUTPUT=/tmp/mnovo-cli-test python scripts/check_training_cli.py
 ```
 
-## License and citation
-
-The code is released under the MIT License. See `NOTICE` for upstream
-attribution and `CITATION.cff` for citation metadata.
-
-If you use pi-MNovo in your research, please cite our preprint:
-
-> Ye, J. et al. π-MNovo improves de novo peptide sequencing through microbial-domain adaptation and evidence-guided candidate selection. *bioRxiv* (2026). https://doi.org/10.64898/2026.09.22.753549
-
-```bibtex
-@article{ye2026pimnovo,
-  title = {{$\pi$-MNovo} improves de novo peptide sequencing through microbial-domain adaptation and evidence-guided candidate selection},
-  author = {Ye, Jingwen and Zhang, Xin and Sun, Boyan and Ling, Tianze and Liang, Zhendong and Dong, Jingyi and Zheng, Yuan and Jin, Hui and Jin, Liming and Hao, Zikai and Li, Leyuan and Chang, Cheng},
-  journal = {bioRxiv},
-  year = {2026},
-  doi = {10.64898/2026.09.22.753549},
-  url = {https://doi.org/10.64898/2026.09.22.753549}
-}
-```
-
-## Data validation utilities
-
-`python scripts/audit_training_labels.py --labels labels.tsv --output audit.json`
-audits explicit data roles, full CTC feasibility (including adjacent repeats),
-unsupported labels and canonical-key intersections. Input columns are `role` and
-`sequence`. The report describes the supplied label rows.
-
-`python scripts/audit_checkpoint_metadata.py --checkpoint MODEL --report audit.json`
-scans nested metadata. Add `--output NEW_CANDIDATE` to sanitize local paths and verify
-all component tensors; it never overwrites or promotes an existing asset.
-
-Training accepts only training and validation inputs. `--test-input`/`--peak_path_test`
-is deprecated and ignored; evaluate final test only after all selection decisions freeze.
-Unalignable training/validation loss targets raise an error; audit and construct an
-explicit eligible loss subset before fitting. Final recall includes every accepted spectrum, including empty predictions.
-`eval` rejects `--indices` and `--max-samples` rather than silently changing its denominator.
-
-The supported full installation is **source checkout (or sdist) + environment.yml on Linux
-Python 3.10**, including the bundled native decoder. A standalone `pip install` of the
-Python wheel does not install a complete sequencing environment. An NVIDIA GPU
-meeting the system requirements above is required for prediction and training.
-
-External inference `--config` files may override `runtime` controls only; frozen model,
-preprocessing and residue fields must match the checkpoint. Singleton candidate pools
-retain R1 without invoking the router. Prediction streams must match the requested
-input indices and row count before the output file is published.
+CPU DDP tests do not replace physical multi-GPU validation.
+See [validation](docs/validation.md). Installation does not promote weights or
+replace historical results. MIT license; retain NOTICE and CITATION.cff.

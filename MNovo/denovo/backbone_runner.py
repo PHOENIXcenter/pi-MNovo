@@ -1,3 +1,5 @@
+# Construct loaders and the Lightning trainer for a backbone experiment.
+# 为一次骨干实验创建数据加载器与 Lightning Trainer。
 """Training and validation orchestration for the pi-MNovo backbone."""
 
 import csv
@@ -5,6 +7,7 @@ import glob
 import hashlib
 import json
 import logging
+import math
 import operator
 import os
 import tempfile
@@ -111,6 +114,8 @@ class MetricsCsvCallback(pl.callbacks.Callback):
     def on_validation_epoch_end(
         self, trainer: pl.Trainer, pl_module: pl.LightningModule
     ) -> None:
+        if not trainer.is_global_zero:
+            return
         metrics = trainer.callback_metrics
         train_loss = self.last_train_loss
         for train_key in ("train/CELoss", "train/CELoss_epoch", "train/loss", "loss"):
@@ -243,16 +248,28 @@ def train(
         train_num_samples=config.get("train_num_samples"),
     )
     dataModule = DeNovoDataModule(**dataloader_params)
-    dataModule.prepare_data()
+    # DDP subprocesses can enter this pre-Trainer path simultaneously.
+    # Persisted shared indexes are constructed by one process at a time.
+    import fcntl
+    if _world_size(config) > 1 and config["temp_dir_auto"]:
+        raise ValueError("Multi-device training needs temp_dir_auto=false and a shared temp_dir_path")
+    with open(os.path.join(tmp_dir.name, "index_build.lock"), "a") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        dataModule.prepare_data()
     dataModule.setup()
     train_dataloader = dataModule.train_dataloader()
     # Derive scheduler lengths from the sampled epoch budget.
-    device_count = max(torch.cuda.device_count(), 1)
-    batches_per_device = int(
-        len(train_dataloader) / (device_count * config["accumulate_grad_batches"])
+    if _world_size(config) > 1 and config.get("train_num_samples"):
+        raise ValueError("Distributed sampled epochs need a distributed sampler; use full epochs")
+    per_rank_samples = math.ceil(len(train_dataloader.sampler) / _world_size(config))
+    batches_per_device = math.ceil(
+        math.ceil(per_rank_samples / config["train_batch_size"])
+        / config["accumulate_grad_batches"]
     )
-    config["warmup_iters"] = batches_per_device * config["warm_up_epochs"]
-    config["max_iters"] = batches_per_device * int(config["max_epochs"])
+    if config.get("warmup_iters") is None:
+        config["warmup_iters"] = int(batches_per_device * config["warm_up_epochs"])
+    if config.get("max_iters") is None:
+        config["max_iters"] = batches_per_device * int(config["max_epochs"])
     logger.info("Training batches per epoch: %d", len(train_dataloader))
     # Initialize the model.
     ctc_params = dict(
@@ -293,6 +310,10 @@ def train(
         output_module_prefixes=config.get("output_module_prefixes", []),
         freeze_module_prefixes=config.get("freeze_module_prefixes", []),
         ctc_dic=ctc_params,
+        lr_schedule=config.get("lr_schedule", "cosine"),
+        ctc_max_invalid_fraction=config.get("ctc_max_invalid_fraction", 0.05),
+        ctc_guard_min_samples=config.get("ctc_guard_min_samples", 1000),
+        ctc_max_empty_batches=config.get("ctc_max_empty_batches", 10),
     )
 
     if config["train_from_scratch"]:
@@ -345,17 +366,16 @@ def train(
         trainer = pl.Trainer(
             reload_dataloaders_every_n_epochs=1,
             enable_model_summary=True,
-            accelerator="auto",
-            auto_select_gpus=True,
+            accelerator=config.get("trainer_accelerator", "auto"),
             callbacks=callbacks,
             enable_checkpointing=config["save_model"],
-            devices=_get_devices(),
+            devices=config.get("trainer_devices", 1),
             **_trainer_precision_kwargs(config),
             num_nodes=config["n_nodes"],
             logger=None,
             max_epochs=config["max_epochs"],
             num_sanity_val_steps=config["num_sanity_val_steps"],
-            strategy=_get_strategy(),
+            strategy=DDPStrategy(find_unused_parameters=True) if _world_size(config) > 1 else None,
             gradient_clip_val=config["gradient_clip_val"],
             gradient_clip_algorithm=config["gradient_clip_algorithm"],
             accumulate_grad_batches=config["accumulate_grad_batches"],
@@ -367,17 +387,16 @@ def train(
             val_check_interval=config["val_interval"],
             reload_dataloaders_every_n_epochs=1,
             enable_model_summary=True,
-            accelerator="auto",
-            auto_select_gpus=True,
+            accelerator=config.get("trainer_accelerator", "auto"),
             callbacks=callbacks,
             enable_checkpointing=config["save_model"],
-            devices=_get_devices(),
+            devices=config.get("trainer_devices", 1),
             **_trainer_precision_kwargs(config),
             num_nodes=config["n_nodes"],
             logger=None,
             max_epochs=config["max_epochs"],
             num_sanity_val_steps=config["num_sanity_val_steps"],
-            strategy=_get_strategy(),
+            strategy=DDPStrategy(find_unused_parameters=True) if _world_size(config) > 1 else None,
             gradient_clip_val=config["gradient_clip_val"],
             gradient_clip_algorithm=config["gradient_clip_algorithm"],
             accumulate_grad_batches=config["accumulate_grad_batches"],
@@ -466,6 +485,14 @@ def _trainer_precision_kwargs(config: Dict[str, Any]) -> Dict[str, Any]:
     if precision == "bf16-mixed":
         precision = "bf16"
     return {"precision": precision}
+
+
+def _world_size(config):
+    devices = config.get("trainer_devices", 1)
+    count = len(devices) if isinstance(devices, list) else devices
+    if not isinstance(count, int) or count < 1:
+        raise ValueError("trainer_devices must be a positive count or device list")
+    return count * int(config.get("n_nodes", 1))
 
 
 def _get_devices() -> Union[int, str]:

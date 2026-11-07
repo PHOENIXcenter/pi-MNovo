@@ -1,3 +1,5 @@
+# Translate source-specific spectrum records into the indexed representation.
+# 按输入格式把谱图记录转为可建立索引的表示。
 """Mass spectrometry data parsers"""
 
 import logging
@@ -240,6 +242,7 @@ class MgfParser(BaseParser):
         )
         self.annotationsLabel = annotationsLabel
         self.annotations = []
+        self.reference_sequences = []
         self.titles = []
         self._counter = 0
 
@@ -272,6 +275,7 @@ class MgfParser(BaseParser):
                 None,
             )
             self.titles.append(str(title))
+            self.reference_sequences.append(sequence)
             if self.annotationsLabel:
                 self.annotations.append(sequence)
             else:

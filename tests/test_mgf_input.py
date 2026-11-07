@@ -1,3 +1,5 @@
+# Check MGF input and the default model path.
+# 检查 MGF 入口与默认模型路径。
 from pathlib import Path
 from types import SimpleNamespace
 
