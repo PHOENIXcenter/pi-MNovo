@@ -1,6 +1,6 @@
 # Model and FDR scope
 
-Version 0.2.0 loads the
+Version 0.2.1 loads the
 backbone, experts, length predictor and router from a verified unified checkpoint.
 Architecture, vocabulary and decoding settings belong to that checkpoint.
 Record its SHA256 and resolved configuration with every result.

@@ -3,7 +3,7 @@
 CTC peptide sequencing with Beam20 + PMC, three experts and an observable router.
 Optional Counterpart FDR is post-processing, not a change to sequence selection.
 
-**Version 0.2.0** · [中文使用说明与代码导读](docs/README.zh-CN.md)
+**Version 0.2.1** · [中文使用说明与代码导读](docs/README.zh-CN.md)
 
 Use the isolate checkpoint for microbial isolates and the metaproteome checkpoint
 for real-community metaproteomes. Pass the selected checkpoint explicitly with

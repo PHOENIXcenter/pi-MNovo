@@ -1,5 +1,14 @@
 # Validation scope
 
+## 0.2.1 acceptance
+
+On one NVIDIA A100, both v0.2.0 checkpoints produced byte-identical
+prediction TSVs and evaluation JSONs on a fixed two-spectrum labelled
+fixture before and after the evaluation fixes (1edec65 and 3cf0adf),
+including in a fresh installation of the latter. FDR was off.
+All 165 regression tests passed in the existing validation environment.
+This checks software behaviour, not sequencing accuracy.
+
 ## Local 0.2.0 maintenance baseline (commit `1edec65`)
 
 The isolate and metaproteome release checkpoints each produced two indexed
