@@ -129,7 +129,8 @@ def run_selected_devices(args, lmdb, input_files, total_spectra):
         options = RuntimeOptions(mode=args.mode, candidate_mode=args.candidate_mode,
                                  batch_size=args.batch_size, n_workers=args.n_workers,
                                  ctc_processes=args.ctc_processes,
-                                 initial_beam=getattr(args, "beam_width", None))
+                                 initial_beam=getattr(args, "beam_width", None),
+                                 inference_overrides=getattr(args, "inference_overrides", None))
         load_profile(args.cct_profile, runtime_identity(args.model_dir, args.config, options, "cuda"),
                      args.cct_scope_id, args.psm_fdr, args.peptide_fdr)
     work.mkdir(parents=True)

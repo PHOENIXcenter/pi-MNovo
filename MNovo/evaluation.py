@@ -98,10 +98,11 @@ def check_output_paths(inputs, outputs):
 
 
 def evaluate_predictions(predictions_path, lmdb_path, config_path, output_path,
-                         input_counts=None):
+                         input_counts=None, inference_overrides=None):
     check_output_paths([predictions_path, lmdb_path, config_path], [output_path])
     try:
-        result = _evaluate_predictions(predictions_path, lmdb_path, config_path, output_path)
+        result = _evaluate_predictions(predictions_path, lmdb_path, config_path, output_path,
+                                       **({"inference_overrides": inference_overrides} if inference_overrides else {}))
         total = result["spectra"]
         counts = input_counts or {"original_input": None, "accepted": total, "rejected": None}
         if counts["accepted"] != total:
@@ -127,12 +128,15 @@ def _evaluate_predictions(
     lmdb_path: str | Path,
     config_path: str | Path,
     output_path: str | Path,
+    inference_overrides=None,
 ) -> dict:
     from MNovo.denovo.spectrum_dataset import SpectrumDataset
     from MNovo.denovo.spectrum_index import LmdbSpectrumIndex
     from MNovo.denovo.metric_counts import match_counts, metric_components, count_ratio
 
-    config = yaml.safe_load(Path(config_path).read_text(encoding="utf-8"))
+    from MNovo.inference.config import resolve_settings
+    config = resolve_settings(yaml.safe_load(Path(config_path).read_text(encoding="utf-8")),
+                              inference_overrides or {})
     valid_charge = np.arange(1, int(config["max_charge"]) + 1)
     index = LmdbSpectrumIndex(
         str(lmdb_path),

@@ -8,6 +8,14 @@ set `runtime.beam_width: 10` in the runtime YAML; the command line takes
 precedence. The width controls CTC search before PMC merging and reranking,
 not the number of distinct candidates guaranteed per spectrum. A changed
 width can change predictions; do not reuse a CCT profile fitted at another width.
+
+For peak filtering and precise mass control, copy [MNovo/config.yaml](MNovo/config.yaml),
+edit the values, and pass the file with `--config`. The example shows the
+published defaults; omitted keys inherit their checkpoint values. Set
+`PMC_enable: false` for CTC beam candidates without the PMC proposal.
+`mass_control_tol` sets the PMC mass tolerance in Da, not ppm or the
+precursor peak removal window. Changes to decoding or preprocessing require
+a matching CCT profile when using FDR filtering. Training configuration is separate.
 Optional Counterpart FDR is post-processing, not a change to sequence selection.
 
 **Version 0.2.1** · [中文使用说明与代码导读](docs/README.zh-CN.md)

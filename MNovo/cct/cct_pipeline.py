@@ -35,11 +35,14 @@ def runtime_identity(model_dir, config_path, options, device="auto"):
     import yaml
     config = yaml.safe_load(Path(config_path).read_text())
     config.pop("runtime", None)
+    from MNovo.inference.config import resolve_settings
+    option_fields = vars(options).copy()
+    config = resolve_settings(config, option_fields.pop("inference_overrides", None) or {})
     device_class = ("cuda" if torch.cuda.is_available() else "cpu") if device == "auto" else torch.device(device).type
     return {
         "components": verified["manifest"]["components"],
         "inference_config": config,
-        "options": vars(options),
+        "options": option_fields,
         "device_class": device_class,
         "effective_precision": "bf16_autocast" if device_class == "cuda" and options.precision == "bf16" else "fp32",
         "torch_version": str(torch.__version__),

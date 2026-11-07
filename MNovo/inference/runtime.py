@@ -65,6 +65,7 @@ from MNovo.inference.candidate_generation import (
 from MNovo.router_schema import ROUTER_FEATURE_NAMES
 from MNovo.inference.selection import validate_selection
 from MNovo.inference.sequence_score import SequenceScoreRuntime, build_score_inputs
+from MNovo.inference.config import resolve_settings
 
 
 @dataclass(frozen=True)
@@ -78,6 +79,7 @@ class RuntimeOptions:
     precision: str = "bf16"
     length_alpha: float = 0.7
     candidate_mode: str = "union"
+    inference_overrides: dict | None = None
 
 
 @dataclass
@@ -163,6 +165,7 @@ class MNovoRuntime:
         self.config = yaml.safe_load(
             (self.root / "config" / "inference.yaml").read_text(encoding="utf-8")
         )
+        self.config = resolve_settings(self.config, self.options.inference_overrides or {})
         self.beam_width = self.options.initial_beam
         if self.beam_width is None:
             self.beam_width = int(self.config["n_beams"])

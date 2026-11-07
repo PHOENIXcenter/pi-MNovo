@@ -29,6 +29,7 @@ from MNovo.evaluation import check_output_paths, evaluate_predictions, write_met
 from MNovo.release import resolve_model_release
 from MNovo.inference.runtime import MNovoRuntime, RuntimeOptions
 from MNovo.inference.selection import validate_selection
+from MNovo.inference.config import EDITABLE, resolve_settings
 from MNovo.data.input_audit import InputAudit
 
 DEFAULT_RELEASE = Path("models/pi-MNovo-v0.1.0.ckpt")
@@ -151,8 +152,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--config",
         help=(
-            "Optional YAML containing runtime controls only. Frozen model and "
-            "preprocessing settings are loaded from the checkpoint."
+            "Optional prediction/evaluation YAML for decoding, peak filters and runtime controls."
         ),
     )
     inputs = parser.add_mutually_exclusive_group(required=True)
@@ -186,7 +186,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--candidate-mode",
         choices=("union", "beam-only"),
-        default="union",
+        default=None,
         help="beam-only is diagnostic and changes the candidate algorithm.",
     )
     parser.add_argument("--fdr", "--fdr-mode", dest="fdr_mode", choices=("off", "on"), default="off",
@@ -224,29 +224,36 @@ def apply_config(args: argparse.Namespace) -> argparse.Namespace:
     if not config_path.is_file():
         raise FileNotFoundError(f"Inference config not found: {config_path}")
     config = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
+    args.inference_overrides = {}
     if args.config and getattr(args, "task", "denovo") != "train":
         frozen_path = model_dir / "config" / "inference.yaml"
         frozen = yaml.safe_load(frozen_path.read_text(encoding="utf-8"))
         changed = [
             key
             for key, value in config.items()
-            if key != "runtime" and (key not in frozen or value != frozen[key])
+            if key != "runtime" and key not in EDITABLE and (key not in frozen or value != frozen[key])
         ]
         if changed:
             raise ValueError(
                 f"Cannot override frozen inference fields: {sorted(changed)}"
             )
-        # Keep preprocessing and the mass schema fixed across stages.
+        effective = resolve_settings(frozen, {k: config[k] for k in EDITABLE if k in config})
+        args.inference_overrides = {k: effective[k] for k in EDITABLE
+                                    if k in effective and effective[k] != frozen.get(k)}
         overrides = config.get("runtime", {})
         if not isinstance(overrides, dict):
             raise TypeError(f"'runtime' must be a mapping in {config_path}")
-        config = dict(frozen, runtime={**frozen.get("runtime", {}), **overrides})
+        config = dict(effective, runtime={**frozen.get("runtime", {}), **overrides})
         config_path = frozen_path
     runtime = config.get("runtime", {})
     if not isinstance(runtime, dict):
         raise TypeError(f"'runtime' must be a mapping in {config_path}")
 
     args.mode = args.mode or runtime.get("mode", "fast")
+    if getattr(args, "candidate_mode", None) is None:
+        args.candidate_mode = "union" if config.get("PMC_enable", True) else "beam-only"
+    elif args.candidate_mode == "union" and not config.get("PMC_enable", True):
+        raise ValueError("--candidate-mode union conflicts with PMC_enable: false")
     width = getattr(args, "beam_width", None)
     if width is None:
         width = runtime.get("beam_width")
@@ -322,6 +329,7 @@ def run(
         n_workers=args.n_workers,
         ctc_processes=args.ctc_processes,
         initial_beam=getattr(args, "beam_width", None),
+        inference_overrides=getattr(args, "inference_overrides", None),
     )
     cct_profile = None
     cct_output = Path(args.output).with_suffix(".cct")
@@ -459,6 +467,8 @@ def run(
                 "input_type": "mgf" if input_files else "lmdb",
                 "input_files": len(input_files) if input_files else 1,
                 "config": args.config,
+                **({"inference_overrides": args.inference_overrides}
+                   if getattr(args, "inference_overrides", None) else {}),
                 "runtime": {
                     "mode": args.mode,
                     "batch_size": args.batch_size,
@@ -592,7 +602,9 @@ def main() -> None:
                             max_charge=args.max_charge,
                             annotated=args.task == "eval",
                             audit=audit,
-                            preprocessing_config=yaml.safe_load(Path(args.config).read_text(encoding="utf-8")),
+                            preprocessing_config=resolve_settings(
+                                yaml.safe_load(Path(args.config).read_text(encoding="utf-8")),
+                                args.inference_overrides),
                         )
                     print(
                         json.dumps(
@@ -635,6 +647,7 @@ def main() -> None:
                     lmdb,
                     args.config,
                     metrics_output,
+                    inference_overrides=args.inference_overrides,
                     input_counts=dict(original_input=audit.total, accepted=audit.accepted,
                                       rejected=audit.rejected) if audit else None,
                 )

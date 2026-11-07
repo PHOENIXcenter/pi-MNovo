@@ -1,8 +1,15 @@
 # Optional runtime controls for prediction and evaluation.
 #
-# Model components and preprocessing are loaded from the checkpoint.
-# Changing beam width can change predictions and requires a matching FDR profile.
+# Defaults below match both published checkpoints. A changed configuration
+# can change predictions and requires a matching FDR profile.
 # Most users do not need to pass this file. Command-line options take precedence.
+PMC_enable: true
+mass_control_tol: 0.1      # PMC neutral mass tolerance (Da, not ppm)
+n_peaks: 800               # Maximum retained peaks per spectrum
+min_mz: 1.0
+max_mz: 6500.0
+min_intensity: 0.0         # Relative to the base peak (0 to 1)
+remove_precursor_tol: 1.0  # Precursor peak removal tolerance (Da)
 runtime:
   # beam_width: 10  # Omit to use the checkpoint default (20 for the published weights).
   batch_size: 128
