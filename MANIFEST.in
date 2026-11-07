@@ -1,4 +1,4 @@
-include environment.yml requirements*.txt MODEL_CARD.md CITATION.cff CCT_MODULE.md
+include environment.yml requirements*.txt MODEL_CARD.md CITATION.cff README.md
 recursive-include scripts *.py
 recursive-include docs *.md *.json *.yaml
 recursive-include docs *.png
