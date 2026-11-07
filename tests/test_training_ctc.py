@@ -7,7 +7,7 @@ import torch
 import pytorch_lightning as pl
 from torch.utils.data import DataLoader
 
-from MNovo.training_ctc import masked_ctc_loss, training_target_status, CTCLossResult
+from MNovo.training.training_ctc import masked_ctc_loss, training_target_status, CTCLossResult
 from MNovo.denovo.model import Spec2Pep
 
 

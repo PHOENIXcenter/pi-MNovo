@@ -17,8 +17,8 @@ from . import mass_con
 from ..components import ModelMixin, PeptideDecoder, SpectrumEncoder
 from .ctc_beam_search import CTCBeamSearchDecoder
 from .metric_counts import CountRatio, match_counts, metric_components
-from MNovo.training_ctc import masked_ctc_loss
-from MNovo.distributed_training import distributed_ctc, check_finite_gradients
+from MNovo.training.training_ctc import masked_ctc_loss
+from MNovo.training.distributed_training import distributed_ctc, check_finite_gradients
 
 AA_MASSES = {
     "G": 57.021464,

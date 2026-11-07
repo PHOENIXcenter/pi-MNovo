@@ -12,8 +12,8 @@ import torch.distributed as dist
 import torch.multiprocessing as mp
 from torch.nn.parallel import DistributedDataParallel as DDP
 
-from MNovo.training_ctc import masked_ctc_loss
-from MNovo.distributed_training import distributed_ctc, check_finite_gradients
+from MNovo.training.training_ctc import masked_ctc_loss
+from MNovo.training.distributed_training import distributed_ctc, check_finite_gradients
 
 
 def sample(case, micro=0):

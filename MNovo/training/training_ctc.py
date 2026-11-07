@@ -8,7 +8,7 @@ from typing import Optional
 import torch
 import torch.nn.functional as F
 
-from .ctc import required_steps
+from MNovo.ctc import required_steps
 
 
 @dataclass

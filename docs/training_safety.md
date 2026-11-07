@@ -2,7 +2,7 @@
 
 Training target applicability is not annotation quality. Original spectra and
 evaluation membership must not be deleted when a reference cannot be aligned
-by a particular decoder. `MNovo.training_ctc.training_target_status` uses the
+by a particular decoder. `MNovo.training.training_ctc.training_target_status` uses the
 decoder tokenizer, a configurable residue length interval, and the actual CTC
 time dimension. Adjacent repeated tokens require additional blank time steps.
 
