@@ -7,7 +7,7 @@ import numpy as np
 
 
 class FeedForward(torch.nn.Module):
-    """Create a feed forward neural net with leaky GELU activations
+    """Build a feed-forward network with LeakyReLU between hidden layers.
 
     Parameters
     ----------
@@ -27,7 +27,6 @@ class FeedForward(torch.nn.Module):
     """
 
     def __init__(self, in_dim, out_dim, layers, dropout=0, append=None):
-        """Initiazlize a FeedForward network"""
         super().__init__()
         try:
             sizes = np.array([in_dim] + list(layers) + [out_dim])

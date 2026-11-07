@@ -34,9 +34,9 @@ pi-mnovo --input sample.mgf --model-dir "$CHECKPOINT" --output predictions.tsv -
 | 文件 | 中文说明 | English |
 | --- | --- | --- |
 | `MNovo/cli.py` | 从这里看输入、输出和预测入口。 | Command-line inputs and outputs. |
-| `MNovo/input.py`、`MNovo/input_audit.py` | 输入谱图的读取与接收、拒绝计数。 | Spectrum ingestion and input accounting. |
+| `MNovo/data/input.py`、`MNovo/data/input_audit.py` | 输入谱图的读取与接收、拒绝计数。 | Spectrum ingestion and input accounting. |
 | `MNovo/inference/candidate_generation.py` | 检查精确质量约束候选如何加入候选池。 | Candidate merging for precursor-mass-constrained decoding. |
-| `MNovo/ranker/`、`MNovo/inference/selection.py` | 区分候选评分和最终选择。 | Candidate ranking and sequence selection. |
+| `MNovo/ranker/`、`MNovo/inference/selection.py` | 前者为候选肽段排序；后者校验输入谱图索引。 | Candidate ranking; validation of input spectrum indices, respectively. |
 | `MNovo/inference/sequence_score.py` | 对已经选定的序列评分。 | Confidence scoring for the selected sequence. |
 | `MNovo/cct/cct_pipeline.py` | 可选的 PSM 及肽段级过滤，不负责选择预测序列。 | Optional post-prediction quality control. |
 

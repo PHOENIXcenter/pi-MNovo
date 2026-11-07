@@ -17,7 +17,8 @@ consumes paired evidence; it does not choose the sequence.
 
 | Location | Responsibility |
 | --- | --- |
-| `MNovo/` | CLI, input accounting, checkpoint loading and evaluation |
+| `MNovo/` | CLI, checkpoint loading and evaluation |
+| `MNovo/data/` | MGF input resolution, spectrum accounting and LMDB construction |
 | `MNovo/inference/` | Candidate generation, sequence selection, final Score and single-/multi-GPU execution |
 | `MNovo/components/`, `MNovo/denovo/` | Transformer layers, spectrum data, decoding and backbone training |
 | `MNovo/ranker/` | Candidate features, length and fragment evidence, and routing |

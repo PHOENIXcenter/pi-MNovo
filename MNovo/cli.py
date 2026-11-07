@@ -19,7 +19,7 @@ import numpy as np
 import yaml
 from tqdm import tqdm
 
-from MNovo.input import (
+from MNovo.data.input import (
     LmdbTitleLookup,
     lmdb_spectra_count,
     materialize_mgf_lmdb,
@@ -29,7 +29,7 @@ from MNovo.evaluation import evaluate_predictions, write_metrics_state
 from MNovo.release import resolve_model_release
 from MNovo.inference.runtime import MNovoRuntime, RuntimeOptions
 from MNovo.inference.selection import validate_selection
-from MNovo.input_audit import InputAudit
+from MNovo.data.input_audit import InputAudit
 
 DEFAULT_RELEASE = Path("models/pi-MNovo-v0.1.0.ckpt")
 OUTPUT_HEADER = (

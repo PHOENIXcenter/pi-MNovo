@@ -290,27 +290,9 @@ class Spec2Pep(pl.LightningModule, ModelMixin):
         precursors: torch.Tensor,
         _true_peps,
     ) -> Tuple[List[List[str]], torch.Tensor]:
-        """
-        Predict peptide sequences for a batch of MS/MS spectra.
+        """Return decoded peptides and exp(-beam score) for each spectrum.
 
-        Parameters
-        ----------
-        spectra : torch.Tensor of shape (n_spectra, n_peaks, 2)
-            The spectra for which to predict peptide sequences.
-            Axis 0 represents an MS/MS spectrum, axis 1 contains the peaks in
-            the MS/MS spectrum, and axis 2 is essentially a 2-tuple specifying
-            the m/z-intensity pair for each peak. These should be zero-padded,
-            such that all of the spectra in the batch are the same length.
-        precursors : torch.Tensor of size (n_spectra, 3)
-            The measured precursor mass (axis 0), precursor charge (axis 1), and
-            precursor m/z (axis 2) of each MS/MS spectrum.
-
-        Returns
-        -------
-        peptides : List[List[str]]
-            The predicted peptide sequences for each spectrum.
-        aa_scores : torch.Tensor of shape (n_spectra, length, n_amino_acids)
-            The individual amino acid scores for each prediction.
+        PMC can replace a beam sequence; the accompanying scores still come from beam decoding.
         """
         output_logits, _, _ = self.decoder(None, precursors, *self.encoder(spectra))
         top_tokens, beamscores = self.ctc_decoder.decode(F.softmax(output_logits, -1))
@@ -359,30 +341,7 @@ class Spec2Pep(pl.LightningModule, ModelMixin):
         precursors: torch.Tensor,
         sequences: List[str],
     ) -> Tuple[torch.Tensor, torch.Tensor]:
-        """
-        The forward learning step.
-
-        Parameters
-        ----------
-        spectra : torch.Tensor of shape (n_spectra, n_peaks, 2)
-            The spectra for which to predict peptide sequences.
-            Axis 0 represents an MS/MS spectrum, axis 1 contains the peaks in
-            the MS/MS spectrum, and axis 2 is essentially a 2-tuple specifying
-            the m/z-intensity pair for each peak. These should be zero-padded,
-            such that all of the spectra in the batch are the same length.
-        precursors : torch.Tensor of size (n_spectra, 3)
-            The measured precursor mass (axis 0), precursor charge (axis 1), and
-            precursor m/z (axis 2) of each MS/MS spectrum.
-        sequences : List[str] of length n_spectra
-            The partial peptide sequences to predict.
-
-        Returns
-        -------
-        scores : torch.Tensor of shape (n_spectra, length, n_amino_acids)
-            The individual amino acid scores for each prediction.
-        tokens : torch.Tensor of shape (n_spectra, length)
-            The predicted tokens for each spectrum.
-        """
+        """Return final decoder logits, tokenized targets and the logits from each layer."""
         return self.decoder(sequences, precursors, *self.encoder(spectra))
 
     def training_step(
@@ -641,7 +600,7 @@ class CosineWarmupScheduler(torch.optim.lr_scheduler._LRScheduler):
         Optimizer object.
     warmup : int
         The number of warm up iterations.
-    max_iters : torch.optim
+    max_iters : int
         The total number of iterations.
     """
 
@@ -654,7 +613,7 @@ class CosineWarmupScheduler(torch.optim.lr_scheduler._LRScheduler):
         return [base_lr * lr_factor for base_lr in self.base_lrs]
 
     def get_lr_factor(self, epoch):
-        # Cosine annealing after a constant period
+        # Linear warmup followed by cosine decay.
         # Author: Sheng Xu
         # Date: 20230214
 

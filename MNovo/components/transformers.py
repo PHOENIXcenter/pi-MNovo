@@ -1,5 +1,5 @@
-# Spectrum and peptide transformers share the decoder vocabulary contract.
-# 谱图与肽段的 Transformer 模块须与解码词表约定一致。
+# Encode spectral peaks and decode peptide positions conditioned on the precursor.
+# 编码谱峰，并根据前体信息和谱图表示解码肽段位置。
 """Base Transformer models for working with mass spectra and peptides"""
 
 import re
@@ -182,7 +182,7 @@ class _PeptideTransformer(torch.nn.Module):
         Returns
         -------
         torch.Tensor
-            The token for each amino acid in the peptide sequence. which is unblanced matrix, not rectangle
+            A one-dimensional sequence of token indices for a string input.
         """
         if not isinstance(sequence, str):
             return sequence  # Assume it is already tokenized.
@@ -342,25 +342,7 @@ class PeptideEncoder(_PeptideTransformer):
         )
 
     def forward(self, sequences, charges):
-        """Predict the next amino acid for a collection of sequences.
-
-        Parameters
-        ----------
-        sequences : list of str or list of torch.Tensor of length batch_size
-            The partial peptide sequences for which to predict the next
-            amino acid. Optionally, these may be the token indices instead
-            of a string.
-        charges : torch.Tensor of size (batch_size,)
-            The charge state of the peptide
-
-        Returns
-        -------
-        latent : torch.Tensor of shape (n_sequences, len_sequence, dim_model)
-            The latent representations for the spectrum and each of its
-            peaks.
-        mem_mask : torch.Tensor
-            The memory mask specifying which elements were padding in X.
-        """
+        """Encode a leading charge token and peptide tokens; return representations and padding mask."""
         sequences = utils.listify(sequences)
         tokens = [self.tokenize(s) for s in sequences]
         tokens = torch.nn.utils.rnn.pad_sequence(tokens, batch_first=True)
@@ -472,32 +454,10 @@ class PeptideDecoder(_PeptideTransformer):
         return mass_mapped  # bz, seq_len
 
     def forward(self, sequences, precursors, memory, memory_key_padding_mask):
-        """Predict the next amino acid for a collection of sequences.
+        """Return final logits, supplied target tokens and per-layer logits.
 
-        Parameters
-        ----------
-        sequences : list of str or list of torch.Tensor
-            The partial peptide sequences for which to predict the next
-            amino acid. Optionally, these may be the token indices instead
-            of a string.
-        precursors : torch.Tensor of size (batch_size, 2)
-            The measured precursor mass (axis 0) and charge (axis 1) of each
-            tandem mass spectrum
-        memory : torch.Tensor of shape (batch_size, n_peaks, dim_model)
-            The representations from a ``TransformerEncoder``, such as a
-           ``SpectrumEncoder``.
-        memory_key_padding_mask : torch.Tensor of shape (batch_size, n_peaks)
-            The mask that indicates which elements of ``memory`` are padding.
-
-        Returns
-        -------
-        scores : torch.Tensor of size (batch_size, len_sequence, n_amino_acids)
-            The raw output for the final linear layer. These can be Softmax
-            transformed to yield the probability of each amino acid for the
-            prediction.
-        tokens : torch.Tensor of size (batch_size, len_sequence)
-            The input padded tokens.
-
+        Each decoder position receives the precursor embedding plus positional encoding.
+        Supplied sequences are tokenized for the returned targets, not fed in as prefixes.
         """
         # Prepare sequences
 
@@ -517,24 +477,8 @@ class PeptideDecoder(_PeptideTransformer):
 
         # Feed through model:
         tgt = precursors.repeat(1, self.max_pep_len, 1)  # b_z, max_len, dim
-        """
-        if sequences is None:
-            tgt = precursors
-        else:
-            tgt = torch.cat([precursors, self.aa_encoder(tokens)], dim=1) # to be changed, no longer need any encoder for peptite in the input
-        """
         tgt_key_padding_mask = tgt.sum(axis=2) == 0
         tgt = self.pos_encoder(tgt)
-        # tgt_mask = generate_tgt_mask(tgt.shape[1]).type_as(precursors)
-        """
-        preds = self.transformer_decoder(
-            tgt=tgt,
-            memory=memory,
-            #tgt_mask=tgt_mask,
-            #tgt_key_padding_mask=tgt_key_padding_mask,
-            memory_key_padding_mask=memory_key_padding_mask.to(self.device),
-        ) #bz, token_len, dim
-        """
 
         output = tgt
 
@@ -550,18 +494,6 @@ class PeptideDecoder(_PeptideTransformer):
             )
             preds = self.final(output)  # bz, token_len, dic_size
             output_list.append(preds)
-            # pred_tokens = torch.argmax(preds, axis=2) #bz, token_len
-            # encoded_tokens = self.aa_encoder(pred_tokens) #bz, token_len, dim_model
-            # -------------not useful-------
-            # cum_mass = self.demass(pred_tokens) #bz, token_len
-            # cum_mass = cum_mass[:, :, None] #bz, token_len, 1
-            # encoded_mass = self.mass_ln(cum_mass) #bz, token_len, dim_model
-            # aa_encoded = encoded_mass + encoded_tokens  #bz, token_len, dim_model
-            # --------------------------------
-            # total_encod = torch.cat([output, encoded_tokens], dim=2) # bz, token_len ,dim_model * 2
-            # output = self.layer_ln(total_encod)
-
-            # output = torch.nn.functional.dropout(output, p=self.dropout)
 
         return output_list[-1], tokens, output_list
 

@@ -69,7 +69,7 @@ def test_unknown_reference_not_negative_and_modifications_preserved():
 
 
 def test_mgf_title_cannot_become_reference(tmp_path):
-    from MNovo.input import materialize_mgf_lmdb
+    from MNovo.data.input import materialize_mgf_lmdb
     from MNovo.denovo.spectrum_index import LmdbSpectrumIndex
     mgf = tmp_path / "mixed.mgf"
     mgf.write_text("".join("BEGIN IONS\nTITLE=AK\nPEPMASS=351\nCHARGE=2+\n" + seq +

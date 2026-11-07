@@ -105,7 +105,7 @@ def materialize_mgf_lmdb(
     """Write resolved MGF spectra to a temporary inference LMDB."""
     from MNovo.denovo.spectrum_index import LmdbSpectrumIndex
     from MNovo.denovo.spectrum_parsers import MgfParser
-    from MNovo.input_audit import spectra
+    from MNovo.data.input_audit import spectra
     from MNovo.denovo.spectrum_dataset import SpectrumDataset
 
     config = preprocessing_config or {}

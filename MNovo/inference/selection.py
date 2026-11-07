@@ -1,5 +1,5 @@
-# Validate selected candidate indices against the available candidates.
-# 按可用候选核对最终选择的索引。
+# Validate requested input spectrum indices, not candidate peptide indices.
+# 检查用户选取的输入谱图索引，不参与候选肽段排序。
 """Validate requested spectrum subsets before starting inference."""
 
 import numpy as np

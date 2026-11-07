@@ -571,8 +571,7 @@ class MNovoRuntime:
         selected = path_index[torch.arange(route.numel(), device=self.device), route]
         route_names = ["r1", "r2_long", "r3_fragment"]
         names = [route_names[int(value)] for value in route.cpu().tolist()]
-        # R2/R3 have no independent calibrator. Score every routed peptide on
-        # the common R1 scale so exported confidence remains comparable.
+        # Map the routed candidate's R1 score here; the exported sequence Score is computed later.
         confidence = self._r1_confidence(_gather(r1_scores, selected))
         evidence = {
             "router_features": features,

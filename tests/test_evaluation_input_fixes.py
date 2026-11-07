@@ -11,8 +11,8 @@ import yaml
 
 from MNovo import cli
 from MNovo.evaluation import evaluate_predictions
-from MNovo.input import materialize_mgf_lmdb
-from MNovo.input_audit import InputAudit
+from MNovo.data.input import materialize_mgf_lmdb
+from MNovo.data.input_audit import InputAudit
 from MNovo.denovo.spectrum_dataset import SpectrumDataset
 
 

@@ -1,6 +1,6 @@
 # Pair attention views for the same final peptide using its aligned token occurrences.
 # 根据 token 出现位置对齐，为同一最终肽段构造两种 attention 视图。
-"""Inference-only CTC occurrence pairing for the experimental xNovo CCT path."""
+"""Align predicted CTC tokens and construct paired attention views for CCT."""
 
 from __future__ import annotations
 
@@ -59,7 +59,7 @@ class AttentionCapture:
 
 
 def occurrence_frames(log_probs: np.ndarray, tokens: list[int], blank: int) -> list[int]:
-    """Viterbi-align each predicted CTC token occurrence to its best frame."""
+    """Pick one representative frame per occurrence along the best valid CTC path."""
 
     log_probs = np.asarray(log_probs, dtype=np.float64)
     if log_probs.ndim != 2 or not np.isfinite(log_probs).all():
@@ -138,7 +138,7 @@ def paired_reference_features(
     residues: dict[str, float],
     reference,
 ) -> tuple[dict[str, float], dict[str, float]]:
-    """Apply the user's 33-feature equations to one matched CTC pair."""
+    """Extract the ordered CCT features for both views of the same peptide."""
 
     frames = occurrence_frames(log_probs, tokens, blank)
     residue_symbols = [symbols[token] for token in tokens if symbols[token] != "$"]

@@ -6,7 +6,7 @@ from types import SimpleNamespace
 import pytest
 
 from MNovo.denovo.spectrum_parsers import MgfParser
-from MNovo.input import resolve_mgf_inputs
+from MNovo.data.input import resolve_mgf_inputs
 from MNovo.cli import (
     DEFAULT_RELEASE,
     PROTON_MASS,

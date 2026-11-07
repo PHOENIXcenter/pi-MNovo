@@ -73,7 +73,7 @@ def calibrated_confidence(
     scale: float,
     bias: float,
 ) -> torch.Tensor:
-    """Map an R1 raw score monotonically to the released [0, 1] Score."""
+    """Apply the positive-scale sigmoid mapping to an R1 ranking score."""
     if scale <= 0:
         raise ValueError("Confidence calibration scale must be positive.")
     return torch.sigmoid(float(scale) * raw_score + float(bias))

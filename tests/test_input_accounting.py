@@ -6,8 +6,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from MNovo.input import materialize_mgf_lmdb, LmdbTitleLookup
-from MNovo.input_audit import InputAudit
+from MNovo.data.input import materialize_mgf_lmdb, LmdbTitleLookup
+from MNovo.data.input_audit import InputAudit
 
 
 def block(title, charge="2+", mass="500.2"):

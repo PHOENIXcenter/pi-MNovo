@@ -231,21 +231,7 @@ def get_rank_percentile(intensity_list):
 
 
 def compute_aa_confidences(attention_matrix, theor_frags, pred_pep, mz, intens, top_k=5):
-    """
-    attention_matrix: Rows from top to bottom correspond to the peptide sequence from right to left (C‑terminus to N‑terminus).
-    """
-    """
-    Calculate the confidence score for each amino acid in the sequence and mark anchor positions (high attention with matched fragment peaks).
-    - peptide_sequence: Peptide sequence string.
-    - spectrum_peaks: [(mz, intensity), ...] List of spectral peaks.
-    - cross_attention: 2D array or tensor of shape [L, M] representing the attention distribution from each sequence position to the spectral input features.
-    - tolerance_ppm: Mass tolerance (in ppm) for theoretical peak matching.
-    - top_k: For each amino acid, examine the top‑k attention peaks for checking.
-
-    Returns: (aa_confidences, aa_details)
-        aa_confidences: A list of length L, each element is the confidence score (0~1) of the corresponding amino acid.
-        aa_details: A list of length L, each element is a dictionary containing information about that amino acid site (index, aa, is_anchor, confidence, matched_peak_mz, matched_peak_intensity, relative_intensity, attention_score).
-    """
+    """Accumulate fused scores over matching top-k peaks for each aligned row in reverse peptide order."""
     pred_pep_reversed = list(reversed(re.split(r"(?<=.)(?=[A-Z])", pred_pep)))
     L = len(pred_pep_reversed)
     aa_confidences = [0.0] * L
@@ -300,10 +286,7 @@ def compute_aa_confidences(attention_matrix, theor_frags, pred_pep, mz, intens, 
 
 
 def compute_global_metrics(peptide_sequence, theor_frags, pred_pep, mz, intens):
-    """
-    Calculate peptide‑level quality control metrics: fragment coverage, number of complementary ion pairs, and explained intensity.
-    Return a dictionary {coverage, complement_fraction, explained_intensity}.
-    """
+    """Return the fraction of labelled peaks and their fraction of total intensity."""
     pred_pep_reversed = list(reversed(re.split(r"(?<=.)(?=[A-Z])", pred_pep)))
     seq_length = len(pred_pep_reversed)
     total_theoretical = len(theor_frags)
@@ -321,21 +304,7 @@ def compute_global_metrics(peptide_sequence, theor_frags, pred_pep, mz, intens):
 def evaluate_peptide_sequence(attention_matrix, theor_frags, peptide_sequence, mz, intens, top_k=3, global_factor=0.1,
                               masses=None, precursor_mass=None, precursor_charge=None, precursor_tol_ppm=20, 
                               rt=None, rt_diff_threshold=None):
-    """
-    Evaluate the matching quality between a given peptide sequence and the spectrum, returning a result dictionary containing multi-level quality control information.
-
-    Parameters:
-      - peptide_sequence (str): The de novo predicted peptide sequence.
-      - spectrum_peaks (list of (mz, intensity)): List of spectrum peak tuples.
-      - cross_attention (ndarray or tensor): Transformer cross-attention matrix with shape [L, M].
-      - precursor_mass (float): Experimental monoisotopic precursor m/z (optional).
-      - precursor_tol_ppm (float): Precursor mass tolerance in ppm, used for mass deviation judgment.
-      - rt (float): Experimental retention time of the spectrum (optional).
-      - rt_diff_threshold (float): Retention time tolerance threshold (optional, if predicted RT model results are available).
-
-    Returns:
-      A dictionary containing quality control assessments at both the amino acid and peptide levels, suitable for JSON serialization.
-    """
+    """Combine per-residue evidence with peak-level metrics and optional precursor and RT checks."""
     # 1. Calculate confidence scores and anchor information for each amino acid
     aa_confidences, aa_details = compute_aa_confidences(attention_matrix, theor_frags, peptide_sequence, mz, intens, top_k)
     # 2. Calculate global quality control metrics and preliminary global confidence score
@@ -373,19 +342,7 @@ def evaluate_peptide_sequence(attention_matrix, theor_frags, peptide_sequence, m
 
 
 def compute_attention_features(attn_matrix, theor_mz_list, mz_array, intensity_array, attention_threshold=0.05):
-    """
-    Calculate a set of attention features at both the amino acid and peptide levels.
-
-    Parameters:
-        attn_matrix: np.ndarray of shape [L_aa, L_ms], the attention from each amino acid in the protein sequence to each spectral peak.
-        theor_mz_list: list of theoretical fragment m/z values, length L_aa.
-        mz_array: array of experimental m/z values, shape [L_ms].
-        intensity_array: array of intensity values, shape [L_ms].
-        attention_threshold: float, threshold for determining significant attention spectral peaks.
-
-    Returns:
-        features: dict, containing all statistical features at both the amino acid and peptide levels.
-    """
+    """Summarize attention over measured peaks per aligned row and across adjacent rows."""
     L_aa, L_ms = attn_matrix.shape
     features = {
         "aa_entropy": [],
@@ -465,9 +422,9 @@ def compute_psm_features_with_attention(evaluate_results, attn_matrix, theor_mz_
     base_features["global_qc_score"] = evaluate_results['global_confidence']
     # 3. Fragment coverage calculation
     base_features["fragment_coverage"] = evaluate_results['metrics']['coverage']
-    # 4. Explained intensity percentage
+    # Fraction of total intensity, not a percentage.
     base_features["explained_intensity"] = evaluate_results['metrics']['explained_intensity']
-    # 5. Precursor mass deviation (ppm)  (not for DIA)
+    # Precursor mass deviation (ppm).
     base_features["precursor_error_ppm"] = evaluate_results['metrics']['mass_error_ppm']
     # Anchor statistics (temporarily using high confidence as a proxy for anchor points)
     base_features['anchor_ratio'] = base_features['num_high_conf'] / len(aa_conf_list)

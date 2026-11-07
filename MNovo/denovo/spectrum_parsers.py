@@ -94,8 +94,7 @@ class BaseParser(ABC):
 
     @property
     def n_peaks(self):
-        # might not correct
-        """The number of peaks in the file."""
+        """Count peaks in the spectra retained by this parser."""
         mz_arrays_temp = np.concatenate(self.mz_arrays)
         return mz_arrays_temp.shape[0]
 

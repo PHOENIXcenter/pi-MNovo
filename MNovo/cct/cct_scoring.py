@@ -1,6 +1,6 @@
 # Score both views, then restore pairs before collapsing peptides.
 # 为两种视图评分，并在肽段归并前恢复完整配对。
-"""Train and evaluate paired CCT score models at PSM and peptide levels."""
+"""Score paired rows, calibrate cutoffs and select PSMs and peptides."""
 
 from __future__ import annotations
 

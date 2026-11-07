@@ -41,18 +41,7 @@ class MassEncoder(torch.nn.Module):
         self.register_buffer("cos_term", cos_term)
 
     def forward(self, X):
-        """Encode m/z values.
-
-        Parameters
-        ----------
-        X : torch.Tensor of shape (n_masses)
-            The masses to embed.
-
-        Returns
-        -------
-        torch.Tensor of shape (n_masses, dim_model)
-            The encoded features for the mass spectra.
-        """
+        """Encode masses with a trailing singleton dimension as sinusoidal features."""
         sin_mz = torch.sin(X / self.sin_term)
         cos_mz = torch.cos(X / self.cos_term)
         return torch.cat([sin_mz, cos_mz], axis=-1)
@@ -81,7 +70,6 @@ class PeakEncoder(MassEncoder):
         min_wavelength=0.001,
         max_wavelength=10000,
     ):
-        """Initialize the MzEncoder"""
         self.dim_intensity = dim_intensity
         self.dim_mz = dim_model
         if self.dim_intensity is not None:
@@ -140,7 +128,6 @@ class PositionalEncoder(torch.nn.Module):
     """
 
     def __init__(self, dim_model, max_wavelength=10000):
-        """Initialize the MzEncoder"""
         super().__init__()
 
         n_sin = int(dim_model / 2)
@@ -153,20 +140,7 @@ class PositionalEncoder(torch.nn.Module):
         self.register_buffer("cos_term", cos_term)
 
     def forward(self, X):
-        """Encode positions in a sequence.
-
-        Parameters
-        ----------
-        X : torch.Tensor of shape (batch_size, n_sequence, n_features)
-            The first dimension should be the batch size (i.e. each is one
-            peptide) and the second dimension should be the sequence (i.e.
-            each should be an amino acid representation).
-
-        Returns
-        -------
-        torch.Tensor of shape (batch_size, n_sequence, n_features)
-            The encoded features for the mass spectra.
-        """
+        """Add sinusoidal position features without changing the input shape."""
         pos = torch.arange(X.shape[1]).type_as(self.sin_term)
         pos = einops.repeat(pos, "n -> b n", b=X.shape[0])
         sin_in = einops.repeat(pos, "b n -> b n f", f=len(self.sin_term))

@@ -1,5 +1,5 @@
-# Dispatch backbone training and prediction with the selected configuration.
-# 按所选配置调度骨干训练或预测。
+# Train the backbone with the selected configuration.
+# 按指定配置训练骨干模型。
 """Internal command-line entry point for backbone training."""
 
 import datetime
@@ -159,7 +159,7 @@ def main(
     config["residues"] = {
         str(aa): float(mass) for aa, mass in config["residues"].items()
     }
-    # Add extra configuration options and scale by the number of GPUs.
+    # Use the configured worker count when supplied.
     config["n_workers"] = (
         int(config["n_workers"])
         if config.get("n_workers") is not None
