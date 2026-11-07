@@ -53,3 +53,11 @@ pi-mnovo --model denovo --config MNovo/config.yaml --input sample.mgf
 **核对权重。** 从下载清单取得对应文件的可信 SHA-256，在受支持环境运行 `python scripts/verify_release.py --checkpoint "$CHECKPOINT" --expected-sha256 "$SHA256"`。只加载来源可信的权重与索引；哈希匹配不能替代来源判断。
 
 `frozen-rc2` 是原始源码快照。`git diff frozen-rc2 HEAD` 显示此后已提交的改动；`git diff` 显示尚未暂存的改动；`git log --oneline --all --decorate` 显示各版本。检查点留在仓库外，以 SHA-256 核实身份。
+# 一次运行完成 CCT 质控
+
+在 YAML 中将 `runtime.fdr_mode` 改为 `"on"` 并填写研究标识 `cct_scope_id`，预测命令不变。
+填写匹配的 `cct_profile` 就直接过滤；留为 `null` 时，软件从 MGF 的 `SEQ=` 或
+`cct_fit.reference_table` 指定的已接受 PSM 表获取参考标签，自动分组、拟合、留出验证并过滤全量预测。
+缺少可靠参考时不能自动拟合，但可以关闭 FDR 正常预测。原始预测、过滤后的 PSM、去重肽段分别保存。
+英文汇总表 `*.cct/summary.tsv` 中，观察错误率只针对有参考的保留结果；没有分母时显示 NA。
+输入字段、支持的格式及输出文件说明见 [CCT workflow](../CCT_MODULE.md#one-command-workflow)。

@@ -147,7 +147,7 @@ def parse_args() -> argparse.Namespace:
     defaults = dict(model_dir=None, input_format="mgf", mode=None, batch_size=None,
                     n_workers=None, ctc_processes=None, device="auto", max_samples=0,
                     indices=None, candidate_mode=None, fdr_mode="off", gpus=None,
-                    cct_profile=None, cct_scope_id=None, cct_features_output=None,
+                    cct_profile=None, cct_scope_id=None, cct_features_output=None, cct_fit=None,
                     psm_fdr=.05, peptide_fdr=.05, metrics_output=None,
                     validation_input=None, checkpoint=None, temp_dir=None)
     if not isinstance(run, dict) or run.keys() - defaults.keys():
@@ -158,6 +158,17 @@ def parse_args() -> argparse.Namespace:
         parser.error("set runtime.model_dir to the downloaded checkpoint")
     if args.fdr_mode not in ("on", "off"):
         parser.error('runtime.fdr_mode must be the quoted string "on" or "off"')
+    if args.fdr_mode == "on":
+        if args.task == "train":
+            parser.error("FDR applies to denovo/eval, not backbone training")
+        from MNovo.cct.workflow import fit_settings
+        args.cct_fit = fit_settings(args.cct_fit)
+        if args.cct_profile and not Path(args.cct_profile).is_file():
+            parser.error(f"Profile not found: {args.cct_profile}. Correct the path or set cct_profile: null to fit.")
+        if not args.cct_scope_id:
+            parser.error("Set runtime.cct_scope_id to your study identifier (for an existing profile use its calibrated scope).")
+        if args.input_format == "lmdb" and args.cct_fit["reference_table"]:
+            parser.error("An external reference table requires MGF input; for LMDB use embedded reference_sequence.")
     if args.input_format not in ("lmdb", "mgf"):
         parser.error("runtime.input_format must be mgf or lmdb")
     if args.device not in ("auto", "cpu", "cuda") or args.candidate_mode not in (None, "union", "beam-only"):
@@ -466,6 +477,8 @@ def run(
 def _check_inference_paths(args, metrics_output):
     output = Path(args.output)
     inputs = [args.config, args.indices, args.cct_profile, args.lmdb]
+    if getattr(args, "cct_fit", None) and args.fdr_mode == "on":
+        inputs.extend(args.cct_fit.get(k) for k in ("roles", "reference_table"))
     model = Path(args.model_dir).expanduser()
     if model.is_dir():
         inputs.extend([model / "verified.json", model / "config" / "inference.yaml"])
@@ -487,6 +500,11 @@ def _check_inference_paths(args, metrics_output):
     if args.fdr_mode == "on":
         features = features or output.with_suffix(".cct_features.csv")
         outputs.append(output.with_suffix(".cct"))
+        if not args.cct_profile or args.cct_fit.get("reference_table"):
+            work = output.with_suffix(".cct-work")
+            if work.exists():
+                raise FileExistsError(f"CCT work directory already exists: {work}. Choose a fresh output.")
+            outputs.append(work)
     if features:
         outputs.extend([features, str(features) + ".receipt.json", str(output) + ".final.tmp"])
     if args.gpus:
@@ -550,6 +568,10 @@ def main() -> None:
             context = nullcontext((lmdb_path, [], lmdb_spectra_count(lmdb_path)))
         else:
             sources = resolve_mgf_inputs(args.input)
+            if args.fdr_mode == "on" and args.cct_fit["reference_table"]:
+                from MNovo.cct.workflow import annotate_sources
+                sources = annotate_sources(sources, args.cct_fit, Path(args.output).with_suffix(".cct-work") / "labelled_mgf",
+                                           yaml.safe_load(Path(args.config).read_text())["residues"])
             print(
                 json.dumps(
                     {
@@ -605,7 +627,11 @@ def main() -> None:
             phase = "prediction"
             try:
                 from MNovo.inference.multi_gpu import run_selected_devices
-                predicted = run_selected_devices(args, lmdb, input_files, total_spectra)
+                if args.fdr_mode == "on":
+                    from MNovo.cct.workflow import run_workflow
+                    predicted = run_workflow(args, lmdb, input_files, total_spectra, run_selected_devices)
+                else:
+                    predicted = run_selected_devices(args, lmdb, input_files, total_spectra)
             except Exception:
                 if audit:
                     audit.save("prediction_failed")

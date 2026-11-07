@@ -88,6 +88,8 @@ class LmdbSpectrumIndex:
                     record["title"] = str(parser.scan_id[index])
                 if hasattr(parser, "reference_sequences"):
                     record["reference_sequence"] = parser.reference_sequences[index]
+                if hasattr(parser, "source_scans"):
+                    record.update(source_run=parser.source_run, source_scan=parser.source_scans[index])
                 transaction.put(
                     str(self.n_spectra).encode(),
                     pickle.dumps(record),

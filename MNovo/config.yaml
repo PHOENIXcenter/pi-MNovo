@@ -67,9 +67,21 @@ runtime:
   indices: null                       # Optional subset for denovo only
   temp_dir: null
   metrics_output: null                # eval: derive from output filename
+  # "off": native predictions only. "on": use the profile below, or fit one from labelled spectra.
+  # 开启时指定研究范围；不填 profile 时自动拟合、留出验证、全量过滤。
   fdr_mode: "off"
   cct_profile: null
   cct_scope_id: null
   cct_features_output: null
+  cct_fit:
+    reference_table: null  # Optional accepted PSM TSV; otherwise read embedded MGF SEQ=.
+    title_column: TITLE    # Exact MGF title
+    sequence_column: SEQ   # Full modified sequence in checkpoint token notation
+    fixed_carbamidomethyl_c: false  # Enable only when confirmed in the native search settings
+    roles: null            # Optional pair_id/group_id/role TSV; null = automatic scan groups
+    fractions: [0.48, 0.12, 0.20, 0.20]  # train, early_stop, calibration, test
+    seed: 454
+    epochs: 50
+    gamma_method: interval
   psm_fdr: 0.05
   peptide_fdr: 0.05

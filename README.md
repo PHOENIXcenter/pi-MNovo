@@ -97,10 +97,14 @@ Input-audit sidecars reconcile original, accepted and rejected spectra.
 
 ## Optional FDR
 
-Set `runtime.fdr_mode: "on"`, `runtime.cct_scope_id` and `runtime.cct_profile`
-in your YAML, then run the same prediction command.
+Set `runtime.fdr_mode: "on"` and a study-specific `runtime.cct_scope_id` in
+your YAML, then run the same prediction command. Supply a trusted, matching
+`runtime.cct_profile` to apply it directly. With `cct_profile: null`, MNovo
+uses reference-labelled spectra to fit, test and apply a study-specific profile.
+MGF `SEQ=` labels are read automatically; an accepted PSM table can be supplied
+instead. See the [input contract and one-command workflow](CCT_MODULE.md#one-command-workflow).
 
-FDR is off by default. A scope-matched calibrated profile is required.
+FDR is off by default.
 Changes to CCT feature definitions or scoring algorithms may invalidate a fitted
 profile; validate the calibration again or refit it before reporting FDR results.
 Native predictions remain in native.tsv; filtered results go to native.cct/.

@@ -127,8 +127,11 @@ def materialize_mgf_lmdb(
         for path in sources:
             parser = MgfParser(path, valid_charge=np.arange(1, max_charge + 1),
                                annotationsLabel=annotated)
+            parser.source_run = Path(path).stem
+            parser.source_scans = []
             for spectrum in spectra(path, max_charge, audit, len(database), preprocessor):
                 parser.parse_spectrum(spectrum)
+                parser.source_scans.append(str(spectrum["params"].get("scans", "")))
             database.write_spectra(parser, len(parser.precursor_charge))
         count = len(database)
     finally:
