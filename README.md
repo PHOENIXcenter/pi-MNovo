@@ -20,6 +20,7 @@ consumes paired evidence; it does not choose the sequence.
 | `MNovo/` | CLI, checkpoint loading and evaluation |
 | `MNovo/data/` | MGF input resolution, spectrum accounting and LMDB construction |
 | `MNovo/inference/` | Candidate generation, sequence selection, final Score and single-/multi-GPU execution |
+| `MNovo/training/` | Training-time CTC loss and distributed training helpers |
 | `MNovo/components/`, `MNovo/denovo/` | Transformer layers, spectrum data, decoding and backbone training |
 | `MNovo/ranker/` | Candidate features, length and fragment evidence, and routing |
 | `MNovo/cct/cct_*.py`, `MNovo/cct/cct_core/` | Paired features, fixed-role fitting, calibration and filtering |
@@ -47,6 +48,13 @@ Choose a checkpoint for your sample type from the v0.2.0 release assets:
 | --- | --- |
 | Microbial isolates | [pi-MNovo-isolate.ckpt](https://github.com/PHOENIXcenter/pi-MNovo/releases/download/v0.2.0/pi-MNovo-isolate.ckpt) |
 | Community metaproteomes | [pi-MNovo-metaproteome.ckpt](https://github.com/PHOENIXcenter/pi-MNovo/releases/download/v0.2.0/pi-MNovo-metaproteome.ckpt) |
+
+SHA-256 checksums for the two downloads:
+
+```text
+b332315f9b76839b8f58fb42b7379dc4626120148ef711d1e28a08355d0f5bb3  pi-MNovo-isolate.ckpt
+6497cfa0fb3f7933d4215158288bb8fa720e98c8498860f29ee52bfbdbcd98f5  pi-MNovo-metaproteome.ckpt
+```
 
 Use trusted checkpoints and LMDB files only. The bundle must supply the
 backbone, rankers, length predictor, router and both final-Score components.
@@ -112,6 +120,9 @@ pi-mnovo --model train --input './train/*.mgf' --validation-input './eval/*.mgf'
 Evaluation references use SEQ. CLI recall includes all accepted inputs, even
 empty predictions; rejected spectra are reported separately. This is not
 automatically a study-specific all-original-input benchmark denominator.
+When evaluating an existing LMDB, each record must have an explicit
+`reference_sequence`. Rebuild older unlabelled caches from SEQ-labelled MGF;
+titles and legacy `pep` values are not evidence of a reference label.
 
 Training YAML selects trainer_accelerator: gpu and trainer_devices: 1 or [0, 1].
 train_batch_size is per device; accumulate_grad_batches controls accumulation.

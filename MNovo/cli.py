@@ -25,7 +25,7 @@ from MNovo.data.input import (
     materialize_mgf_lmdb,
     resolve_mgf_inputs,
 )
-from MNovo.evaluation import evaluate_predictions, write_metrics_state
+from MNovo.evaluation import check_output_paths, evaluate_predictions, write_metrics_state
 from MNovo.release import resolve_model_release
 from MNovo.inference.runtime import MNovoRuntime, RuntimeOptions
 from MNovo.inference.selection import validate_selection
@@ -468,6 +468,37 @@ def run(
     return count
 
 
+def _check_inference_paths(args, metrics_output):
+    output = Path(args.output)
+    inputs = [args.config, args.indices, args.cct_profile, args.lmdb]
+    model = Path(args.model_dir).expanduser()
+    if model.is_dir():
+        inputs.extend([model / "verified.json", model / "config" / "inference.yaml"])
+        inputs.extend((model / "components").glob("*"))
+    else:
+        inputs.append(model)
+    outputs = [output, str(output) + ".tmp"]
+    if args.input:
+        try:
+            inputs.extend(resolve_mgf_inputs(args.input))
+        except FileNotFoundError:
+            # The input stage records an unmatched pattern in the evaluation status.
+            if Path(args.input).is_file():
+                inputs.append(args.input)
+        outputs.extend(InputAudit(output).paths.values())
+    if args.task == "eval":
+        outputs.append(metrics_output)
+    features = args.cct_features_output
+    if args.fdr_mode == "on":
+        features = features or output.with_suffix(".cct_features.csv")
+        outputs.append(output.with_suffix(".cct"))
+    if features:
+        outputs.extend([features, str(features) + ".receipt.json", str(output) + ".final.tmp"])
+    if args.gpus:
+        outputs.extend([str(output) + ".workers", str(output) + ".partial"])
+    check_output_paths(inputs, outputs)
+
+
 def main() -> None:
     parsed = parse_args()
     metrics_output = parsed.metrics_output or str(Path(parsed.output).with_suffix(".metrics.json"))
@@ -477,9 +508,9 @@ def main() -> None:
         raise ValueError(
             "eval requires all input spectra; subset parameters are unsupported."
         )
+    if parsed.task != "train":
+        _check_inference_paths(parsed, metrics_output)
     if parsed.task == "eval":
-        if Path(metrics_output).resolve() == Path(parsed.output).resolve():
-            raise ValueError("Metrics and prediction outputs must be different files.")
         write_metrics_state(metrics_output, dict(status="in_progress", peptide_recall=None,
                                                  aa_precision=None, aa_recall=None))
     phase = "initialization"

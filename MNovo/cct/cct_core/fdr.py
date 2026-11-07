@@ -19,7 +19,7 @@ class FDRContractError(ValueError):
 
 
 def combined_score(strict: pd.Series, relaxed: pd.Series) -> pd.Series:
-    """Return the pre-registered score; selector scores are never accepted."""
+    """Return the equally weighted mean of the strict and relaxed scores."""
 
     strict_values = pd.to_numeric(strict, errors="raise").astype(float)
     relaxed_values = pd.to_numeric(relaxed, errors="raise").astype(float)

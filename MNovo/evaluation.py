@@ -78,8 +78,28 @@ def write_metrics_state(path, result):
     return result
 
 
+def check_output_paths(inputs, outputs):
+    """Reject overlapping paths, including existing hard links, before writing."""
+    sources = {Path(p).expanduser().resolve() for p in inputs if p is not None}
+    used = set(sources)
+    identities = {(s.st_dev, s.st_ino) for p in sources if p.exists()
+                  for s in (p.stat(),)}
+    for output in outputs:
+        path = Path(output).expanduser().resolve()
+        if path in used or any(p in path.parents or path in p.parents for p in used):
+            raise ValueError(f"Output path conflict: {path}")
+        if path.exists():
+            stat = path.stat()
+            identity = (stat.st_dev, stat.st_ino)
+            if identity in identities:
+                raise ValueError(f"Output path conflict: {path}")
+            identities.add(identity)
+        used.add(path)
+
+
 def evaluate_predictions(predictions_path, lmdb_path, config_path, output_path,
                          input_counts=None):
+    check_output_paths([predictions_path, lmdb_path, config_path], [output_path])
     try:
         result = _evaluate_predictions(predictions_path, lmdb_path, config_path, output_path)
         total = result["spectra"]
@@ -171,7 +191,15 @@ def _evaluate_predictions(
                 ordered[position] = prediction
             predictions = ordered
 
-        truths = [index[position][-1] for position in range(total_spectra)]
+        truths = []
+        for position in range(total_spectra):
+            reference = index.reference_sequence(position)
+            if not isinstance(reference, str) or not reference.strip():
+                raise ValueError(
+                    f"Missing explicit reference_sequence at dataset_index {position}. "
+                    "For evaluation, rebuild the LMDB from MGF with SEQ labels."
+                )
+            truths.append(reference)
         counts = match_counts(truths, predictions, config["residues"])
         n_aa_correct, n_aa_true, n_aa_pred, peptide_correct, total_spectra = counts
         metrics = {name: count_ratio(numerator, denominator)

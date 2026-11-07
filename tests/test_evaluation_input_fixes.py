@@ -186,3 +186,39 @@ def test_index_alignment_and_invalid_indices(tmp_path):
     prediction.write_text("Sequence\nAK\nAA\n")
     result = evaluate_predictions(prediction, db, path, output)
     assert result["prediction_alignment"] == "row_order_without_index"
+
+
+def test_unlabelled_lmdb_title_is_not_evaluation_truth(tmp_path):
+    path, values = config(tmp_path)
+    source = tmp_path / "unlabelled.mgf"
+    source.write_text(block("AK").replace("SEQ=AK\n", ""))
+    db = tmp_path / "unlabelled.lmdb"
+    assert materialize_mgf_lmdb([source], db, 10, annotated=False,
+                                preprocessing_config=values) == 1
+    predictions = tmp_path / "pred.tsv"
+    predictions.write_text("Sequence\nAK\n")
+    metrics = tmp_path / "metrics.json"
+    with pytest.raises(ValueError, match="Missing explicit reference_sequence"):
+        evaluate_predictions(predictions, db, path, metrics)
+    assert json.loads(metrics.read_text())["peptide_recall"] is None
+
+
+@pytest.mark.parametrize("collision", ["mgf", "model", "predictions", "audit", "hardlink"])
+def test_cli_checks_output_conflicts_before_first_write(tmp_path, monkeypatch, collision):
+    source = tmp_path / "input.mgf"
+    source.write_text(block("AK"))
+    model = tmp_path / "model.ckpt"
+    model.write_bytes(b"original checkpoint")
+    output = tmp_path / "predictions.tsv"
+    alias = tmp_path / "alias.json"
+    if collision == "hardlink":
+        alias.hardlink_to(source)
+    metrics = {"mgf": source, "model": model, "predictions": output,
+               "audit": output.with_suffix(".input-audit.tsv"), "hardlink": alias}[collision]
+    before = {p.name: p.read_bytes() for p in tmp_path.iterdir()}
+    monkeypatch.setattr(sys, "argv", ["pi-mnovo", "--model", "eval", "--input",
+                        str(tmp_path / "*.mgf"), "--model-dir", str(model),
+                        "--output", str(output), "--metrics-output", str(metrics)])
+    with pytest.raises(ValueError, match="Output path conflict"):
+        cli.main()
+    assert {p.name: p.read_bytes() for p in tmp_path.iterdir()} == before

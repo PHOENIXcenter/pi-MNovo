@@ -1,5 +1,14 @@
 # Validation scope
 
+## Local 0.2.0 maintenance baseline (commit `1edec65`)
+
+The isolate and metaproteome release checkpoints each produced two indexed
+prediction rows for `tests/data/synthetic.mgf` on one NVIDIA A100 with FDR
+off. All 159 regression tests passed. This checks the inference path, not
+peptide correctness, calibration, or physical multi-GPU equivalence.
+
+## Historical baseline
+
 Historical validation of 0.2.0rc1 / CODE-20261027-clean-candidate, 2026-10-27.
 These results describe that historical snapshot.
 Original frozen sources and weights are not modified. No GitHub push.
