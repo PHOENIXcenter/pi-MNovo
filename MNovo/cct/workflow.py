@@ -19,7 +19,7 @@ ROLES = ("train", "early_stop", "calibration", "test")
 
 
 def fit_settings(values):
-    defaults = dict(roles=None, seed=454, fractions=[.48, .12, .20, .20], epochs=50, gamma_method="interval",
+    defaults = dict(roles=None, save_profile=None, seed=454, fractions=[.48, .12, .20, .20], epochs=50, gamma_method="interval",
                     reference_table=None, title_column="TITLE", sequence_column="SEQ", fixed_carbamidomethyl_c=False)
     if values is not None and (not isinstance(values, dict) or values.keys() - defaults.keys()):
         raise ValueError("Invalid runtime.cct_fit mapping; see config.yaml for supported keys.")
@@ -248,26 +248,32 @@ def run_workflow(args, lmdb, files, total, predict):
         pd.DataFrame(stats).to_csv(work/"role_counts.tsv", sep="\t", index=False)
         for s in stats:
             if (s["role"] != "test" and min(s["correct"], s["incorrect"]) == 0) or s["correct"] + s["incorrect"] == 0:
-                raise ValueError(f"{s['role']}: {s['valid']} valid spectra, {s['correct']} reference-correct, {s['incorrect']} reference-incorrect. Insufficient reference evidence; add labelled spectra. See role_counts.tsv.")
+                raise ValueError(f"{s['role']}: {s['valid']} valid spectra, {s['correct']} reference-correct, {s['incorrect']} reference-incorrect. Insufficient reference evidence; add labelled spectra.")
         stage = "profile fitting and calibration (check label diversity and calibration support)"
-        print(f"CCT: {stage}; role counts: {work/'role_counts.tsv'}", flush=True)
+        print(pd.DataFrame(stats).to_string(index=False), flush=True)
         fitted = work/"fitted"
         pipeline.fit_profile(roles/"train.csv", roles/"calibration.csv", fitted, validation_path=roles/"early_stop.csv",
                              psm_q=args.psm_fdr, peptide_q=args.peptide_fdr, seed=cfg["seed"], epochs=cfg["epochs"], method=cfg["gamma_method"])
         receipt = json.loads(Path(str(features)+".receipt.json").read_text())
         profile = pipeline.load_profile(fitted/"cct_profile.pt", receipt["runtime_identity"], args.cct_scope_id, args.psm_fdr, args.peptide_fdr)
-        stage = "held-out test"
-        print(f"CCT: {stage}", flush=True)
-        test = pipeline.apply_profile(roles/"test.csv", profile, work/"held_out", independent=True)
+        reports = []
+        for role in ROLES:
+            stage = f"filtering partition: {role}"
+            print(f"CCT: {stage}", flush=True)
+            report = pipeline.apply_profile(roles / (role + ".csv"), profile,
+                                            work / ("report_" + role), independent=role == "test")
+            reports.append((role, report))
         stage = "full application"
         print(f"CCT: {stage}", flush=True)
         full = pipeline.apply_profile(features, profile, dest)
-        summary([("Held-out test",test), ("Full application",full)], dest/"summary.tsv")
+        summary([*reports, ("Full application",full)], dest/"summary.tsv")
         return count
+    except pipeline.CalibrationFailure:
+        raise
     except Exception as exc:
         message = f"CCT failed during {stage}: {exc}"
         if output.is_file():
-            message += f" Native predictions retained at {output}."
+            message += " Native prediction completed."
         if work.is_dir():
             (work/"failure.json").write_text(json.dumps({"stage":stage, "message":message}, indent=2))
         print(message, file=sys.stderr)

@@ -38,6 +38,25 @@ def test_public_cli_requires_config_and_rejects_removed_flags(monkeypatch):
             parse_args()
 
 
+@pytest.mark.parametrize("configured,override,expected", [
+    ("off", "on", "on"), ("on", "off", "off"),
+    ("on", None, "on"), ("off", None, "off"),
+])
+def test_optional_fdr_mode(tmp_path, monkeypatch, configured, override, expected):
+    from MNovo.cli import parse_args
+    cfg = tmp_path / "config.yaml"
+    profile = tmp_path / "profile.pt"
+    profile.touch()
+    cfg.write_text(yaml.safe_dump({"runtime": {"model_dir": "weights.ckpt", "fdr_mode": configured,
+                                               "cct_scope_id": "study", "cct_profile": str(profile) if configured == "on" else None}}))
+    argv = ["pi-mnovo", "--model", "denovo", "--config", str(cfg), "--input", "input.mgf", "--output", "out.tsv"]
+    monkeypatch.setattr("sys.argv", argv + (["--fdr_mode", override] if override else []))
+    args = parse_args()
+    assert args.fdr_mode == expected
+    if override == "off":
+        assert args.cct_profile is None
+
+
 def test_yaml_beam_width_and_vocabulary_order(tmp_path):
     frozen = tmp_path / "config/inference.yaml"
     frozen.parent.mkdir()

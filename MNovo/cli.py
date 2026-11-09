@@ -139,6 +139,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--config", required=True, help="Path to the task YAML.")
     parser.add_argument("--input", required=True, help="MGF file, directory, glob or LMDB.")
     parser.add_argument("--output", help="Output TSV (training: run directory). Defaults to a new run under the code root's outputs/.")
+    parser.add_argument("--fdr_mode", choices=("on", "off"), dest="fdr_override",
+                        help="Override runtime.fdr_mode for this run.")
     args = parser.parse_args()
     config = yaml.safe_load(Path(args.config).read_text(encoding="utf-8"))
     if not isinstance(config, dict):
@@ -154,6 +156,10 @@ def parse_args() -> argparse.Namespace:
         parser.error("invalid runtime mapping or unknown runtime key")
     for key, value in {**defaults, **run}.items():
         setattr(args, key, value)
+    if args.fdr_override is not None:
+        args.fdr_mode = args.fdr_override
+        if args.fdr_mode == "off":
+            args.cct_profile = None
     if args.task != "train" and not args.model_dir:
         parser.error("set runtime.model_dir to the downloaded checkpoint")
     if args.fdr_mode not in ("on", "off"):
@@ -165,6 +171,8 @@ def parse_args() -> argparse.Namespace:
         args.cct_fit = fit_settings(args.cct_fit)
         if args.cct_profile and not Path(args.cct_profile).is_file():
             parser.error(f"Profile not found: {args.cct_profile}. Correct the path or set cct_profile: null to fit.")
+        if args.cct_fit["save_profile"] and (args.cct_profile or args.task != "denovo"):
+            parser.error("save_profile is for fitting a new profile during denovo prediction.")
         if not args.cct_scope_id:
             parser.error("Set runtime.cct_scope_id to your study identifier (for an existing profile use its calibrated scope).")
         if args.input_format == "lmdb" and args.cct_fit["reference_table"]:
@@ -486,6 +494,13 @@ def _check_inference_paths(args, metrics_output):
     else:
         inputs.append(model)
     outputs = [output, str(output) + ".tmp"]
+    if args.task == "denovo" and args.fdr_mode == "on":
+        outputs.extend(output.with_suffix(s) for s in (".accepted_psms.tsv", ".accepted_peptides.tsv", ".fdr_summary.tsv"))
+        if args.cct_fit.get("save_profile"):
+            outputs.append(args.cct_fit["save_profile"])
+        for path in [output, *outputs[2:]]:
+            if Path(path).exists():
+                raise FileExistsError(f"Choose a fresh output path: {path}")
     if args.input:
         try:
             inputs.extend(resolve_mgf_inputs(args.input))
@@ -514,6 +529,51 @@ def _check_inference_paths(args, metrics_output):
 
 def main() -> None:
     parsed = parse_args()
+    if parsed.fdr_mode == "on":
+        from MNovo.cct.cct_pipeline import CalibrationFailure
+        destination = Path(parsed.output)
+        try:
+            return _main(parsed)
+        except CalibrationFailure as exc:
+            saved = (f"Full predictions saved to {destination}." if destination.is_file()
+                     else "No prediction file was saved.")
+            raise SystemExit(
+                f"{exc}\n{saved} No filtered tables or calibrated profile were produced.\n"
+                "Check reference labels and calibration coverage, then retry with representative "
+                "labelled spectra or supply a profile validated for this study and model."
+            ) from None
+    return _main(parsed)
+
+
+def _main(parsed):
+    if parsed.task == "denovo":
+        final = Path(parsed.output)
+        _check_inference_paths(parsed, None)
+        final.parent.mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(prefix=".mnovo-", dir=final.parent) as folder:
+            native = Path(folder) / "native.tsv"
+            parsed.output = str(native)
+            try:
+                _execute(parsed)
+                if parsed.fdr_mode == "on":
+                    qc = native.with_suffix(".cct")
+                    for source, suffix in (("accepted_psms", ".accepted_psms.tsv"),
+                                           ("accepted_peptides", ".accepted_peptides.tsv"),
+                                           ("summary", ".fdr_summary.tsv")):
+                        (qc / (source + ".tsv")).replace(final.with_suffix(suffix))
+                    if parsed.cct_fit.get("save_profile"):
+                        import shutil
+                        shutil.copyfile(native.with_suffix(".cct-work") / "fitted/cct_profile.pt",
+                                        parsed.cct_fit["save_profile"])
+            finally:
+                if native.is_file():
+                    native.replace(final)
+                    print(f"Predictions: {final}", flush=True)
+        return
+    _execute(parsed)
+
+
+def _execute(parsed):
     metrics_output = parsed.metrics_output or str(Path(parsed.output).with_suffix(".metrics.json"))
     if parsed.max_samples < 0:
         raise ValueError("runtime.max_samples must be non-negative.")
@@ -593,7 +653,7 @@ def main() -> None:
                 def __enter__(self):
                     nonlocal audit
                     lmdb = Path(temporary.name) / "input.lmdb"
-                    audit = InputAudit(args.output)
+                    audit = InputAudit(args.output, console=args.task == "denovo")
                     with audit:
                         count = materialize_mgf_lmdb(
                             sources,

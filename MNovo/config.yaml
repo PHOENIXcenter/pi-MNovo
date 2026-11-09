@@ -1,27 +1,27 @@
 # Prediction and evaluation. Relative paths use the current working directory.
 # Editable decoding and peak filters:
-n_beams: 20
-PMC_enable: true
+n_beams: 20  # Number of candidates requested by beam search
+PMC_enable: true  # Enable precursor-mass-constrained candidate generation
 mass_control_tol: 0.1       # PMC mass tolerance (Da)
-n_peaks: 800
-min_mz: 1.0
-max_mz: 6500.0
+n_peaks: 800  # Maximum retained peaks per spectrum
+min_mz: 1.0  # Lower fragment m/z bound
+max_mz: 6500.0  # Upper fragment m/z bound
 min_intensity: 0.0          # Fraction of the base peak intensity
 remove_precursor_tol: 1.0   # Precursor peak removal window (Da)
 
 # Model definition: must match the selected checkpoint for inference.
-max_charge: 10
-precursor_mass_tol: 50.0
-isotope_error_range: [0, 1]
-dim_model: 400
-n_head: 8
-dim_feedforward: 1024
-n_layers: 9
-dropout: 0.18
-dim_intensity: null
-custom_encoder: null
-max_length: 40
-n_log: 1
+max_charge: 10  # Maximum supported precursor charge
+precursor_mass_tol: 50.0  # Checkpoint precursor mass tolerance (ppm)
+isotope_error_range: [0, 1]  # Allowed precursor isotope offsets, inclusive
+dim_model: 400  # Transformer embedding dimension
+n_head: 8  # Attention heads
+dim_feedforward: 1024  # Feed-forward layer dimension
+n_layers: 9  # Transformer depth
+dropout: 0.18  # Model dropout probability
+dim_intensity: null  # Peak intensity encoding dimension; null selects linear projection
+custom_encoder: null  # null selects the checkpoint's standard encoder
+max_length: 40  # Maximum decoded peptide length
+n_log: 1  # Training log interval in epochs
 
 # Ordered residue and modification tokens, with monoisotopic masses in Da.
 residues:
@@ -56,32 +56,33 @@ residues:
 runtime:
   model_dir: ./pi-MNovo-isolate.ckpt  # Or ./pi-MNovo-metaproteome.ckpt
   input_format: mgf                   # mgf or lmdb
-  mode: fast
-  device: auto
+  mode: fast  # Inference execution mode
+  device: auto  # auto, cuda or cpu
   gpus: null                          # e.g. "0" or "0,1"
-  batch_size: 128
-  n_workers: 16
-  ctc_processes: 16
+  batch_size: 128  # Spectra per inference batch
+  n_workers: 16  # Data-loading workers
+  ctc_processes: 16  # CTC decoder processes
   candidate_mode: null                # Derive from PMC_enable
   max_samples: 0                      # 0: all spectra
   indices: null                       # Optional subset for denovo only
-  temp_dir: null
+  temp_dir: null  # Temporary storage for input indexing
   metrics_output: null                # eval: derive from output filename
   # "off": native predictions only. "on": use the profile below, or fit one from labelled spectra.
   # 开启时指定研究范围；不填 profile 时自动拟合、留出验证、全量过滤。
   fdr_mode: "off"
-  cct_profile: null
-  cct_scope_id: null
-  cct_features_output: null
+  cct_profile: null  # Path to an existing fitted profile; null fits a study-specific profile
+  cct_scope_id: null  # Study identifier required for CCT filtering or feature export
+  cct_features_output: null  # Optional output CSV path for paired CCT features
   cct_fit:
+    save_profile: null  # Optional path to keep a newly fitted profile for future predictions.
     reference_table: null  # Optional accepted PSM TSV; otherwise read embedded MGF SEQ=.
     title_column: TITLE    # Exact MGF title
     sequence_column: SEQ   # Full modified sequence in checkpoint token notation
     fixed_carbamidomethyl_c: false  # Enable only when confirmed in the native search settings
     roles: null            # Optional pair_id/group_id/role TSV; null = automatic scan groups
     fractions: [0.48, 0.12, 0.20, 0.20]  # train, early_stop, calibration, test
-    seed: 454
-    epochs: 50
-    gamma_method: interval
-  psm_fdr: 0.05
-  peptide_fdr: 0.05
+    seed: 454  # Seed for the automatic split and CCT fitting
+    epochs: 50  # Maximum CCT fitting epochs (1–50)
+    gamma_method: interval  # CCT calibration method: interval or suffix
+  psm_fdr: 0.05  # Target spectrum-level FDR as a fraction
+  peptide_fdr: 0.05  # Target peptide-level FDR as a fraction

@@ -112,9 +112,22 @@ def load_profile(path, identity, scope_id, psm_q, peptide_q):
     return profile
 
 
-def calibrate_with_audit(rows, q, method, margin):
-    adjusted, gamma, _, _, _ = gamma_fdr(
-        calculate_fdr(rows), threshold=q, method=method, interval_margin=margin)
+class CalibrationFailure(FDRContractError):
+    """The calibration data could not support the requested operating point."""
+
+
+def calibrate_with_audit(rows, q, method, margin, level="CCT"):
+    try:
+        adjusted, gamma, _, _, _ = gamma_fdr(
+            calculate_fdr(rows), threshold=q, method=method, interval_margin=margin)
+    except FDRContractError as exc:
+        reason = {
+            "No finite gamma: incorrect targets without counterparts in interval":
+                "the calibration interval contains incorrect predictions but lacks the counterpart evidence needed to estimate their error rate",
+            "No feasible threshold inside fixed calibration interval":
+                "no threshold in the calibration interval meets the requested FDR",
+        }.get(str(exc), str(exc))
+        raise CalibrationFailure(f"{level} FDR calibration failed at {q:.2%}: {reason}.") from exc
     return gamma, adjusted.attrs["gamma_calibration"]
 
 
@@ -171,7 +184,7 @@ def fit_profile(fit_path, cal_path, output, *, validation_path, psm_q=.05, pepti
         fit_scores = score_rows(fit, columns, psm_models)
         validation_scores = score_rows(validation, columns, psm_models)
         cal_scores = score_rows(cal, columns, psm_models)
-        psm_gamma, psm_audit = calibrate_with_audit(known_rows(cal_scores), psm_q, method, margin)
+        psm_gamma, psm_audit = calibrate_with_audit(known_rows(cal_scores), psm_q, method, margin, "PSM")
         def entry_cutoff(scores):
             return select_psms(scores, psm_q, psm_gamma, require_truth=False,
                                score_bounds=psm_audit["score_bounds"])[2]
@@ -185,7 +198,7 @@ def fit_profile(fit_path, cal_path, output, *, validation_path, psm_q=.05, pepti
                                      columns, output / "peptide_models", seed, epochs,
                                      device="cpu")
         cal_peptide_scores = score_rows(cal_peptides, columns, peptide_models)
-        _, peptide_audit = calibrate_with_audit(known_rows(cal_peptide_scores), peptide_q, method, margin)
+        _, peptide_audit = calibrate_with_audit(known_rows(cal_peptide_scores), peptide_q, method, margin, "Peptide")
         profile = {
             "schema": SCHEMA, "status": "CANDIDATE_NOT_EMPIRICALLY_VALIDATED",
             "scope_id": receipts[0]["scope_id"],

@@ -1,0 +1,20 @@
+{
+  "aa_match_mode": "best",
+  "aa_precision": 1.0,
+  "aa_recall": 1.0,
+  "accepted": 2,
+  "evaluable_spectra": 2,
+  "metric_implementation": "MNovo.denovo.metric_counts.match_counts + metric_components + count_ratio",
+  "n_aa_correct": 18,
+  "n_aa_pred": 18,
+  "n_aa_true": 18,
+  "original_input": 2,
+  "peptide_correct": 2,
+  "peptide_recall": 1.0,
+  "peptide_recall_denominator": "accepted_input_spectra",
+  "peptide_recall_denominator_count": 2,
+  "prediction_alignment": "dataset_index",
+  "rejected": 0,
+  "spectra": 2,
+  "status": "complete"
+}

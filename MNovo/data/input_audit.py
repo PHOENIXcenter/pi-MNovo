@@ -40,7 +40,8 @@ def blocks(path):
 
 
 class InputAudit:
-    def __init__(self, output):
+    def __init__(self, output, *, console=False):
+        self.console = console
         self.output = Path(output)
         self.total = self.accepted = self.rejected = 0
         self.reasons = Counter()
@@ -49,6 +50,8 @@ class InputAudit:
             ("summary", ".input-summary.json"))}
 
     def __enter__(self):
+        if self.console:
+            return self
         if self.output.resolve() in {path.resolve() for path in self.paths.values()}:
             raise ValueError("Prediction output must not use an input-audit sidecar filename.")
         self.output.parent.mkdir(parents=True, exist_ok=True)
@@ -66,11 +69,15 @@ class InputAudit:
 
     def record(self, row):
         self.total += 1
-        self.writers[0].writerow(row)
+        if not self.console:
+            self.writers[0].writerow(row)
         if row["status"] == "rejected":
             self.rejected += 1
             self.reasons[row["field"]] += 1
-            self.writers[1].writerow(row)
+            if self.console:
+                print(f"Rejected {row['TITLE']} ({row['source_file']}, block {row['spectrum_number']}): {row['reason']}")
+            else:
+                self.writers[1].writerow(row)
         else:
             self.accepted += 1
 
@@ -89,11 +96,16 @@ class InputAudit:
             result["equation"] = (
                 "original_input = predictions + rejected" if not not_selected else
                 "original_input = predictions + rejected + not_selected")
+        if self.console:
+            result.pop("files")
+            return result
         self.paths["summary"].write_text(
             json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
         return result
 
     def __exit__(self, typ, value, traceback):
+        if self.console:
+            return
         for handle in self.handles:
             handle.close()
         self.save("parse_failed" if typ else "parsed")

@@ -51,7 +51,7 @@ def test_automatic_workflow(tmp_path, monkeypatch):
     manifest = pd.read_csv(tmp_path/"native.cct-work/roles.tsv", sep="\t")
     assert manifest.groupby(manifest.pair_id//2).role.nunique().eq(1).all()
     table = pd.read_csv(tmp_path/"native.cct/summary.tsv",sep="\t")
-    assert list(table.Scope) == ["Held-out test"]*2 + ["Full application"]*2
+    assert list(table.Scope) == [s for s in (*wf.ROLES, "Full application") for _ in range(2)]
     accepted = pd.read_csv(tmp_path/"native.cct/accepted_peptides.tsv", sep="\t")
     assert 0 < len(accepted) <= n
     assert table.Retained.iloc[-1] == len(accepted)
